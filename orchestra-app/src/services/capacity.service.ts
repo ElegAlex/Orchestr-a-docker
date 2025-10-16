@@ -1,283 +1,62 @@
+/**
+ * Service Capacity - Migration REST API
+ * Gestion des contrats, allocations et calculs de capacité
+ */
+
 import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  addDoc,
-  updateDoc,
-  query,
-  where,
-  orderBy,
-  Timestamp,
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
-import { 
-  User, 
-  WorkContract, 
-  UserCapacity, 
-  DatePeriod, 
-  CapacityAlert, 
-  ResourceAllocation, 
-  WeekDay, 
-  LeaveRequest,
-  HRMetrics,
-  DepartmentMetrics,
-  ContractMetrics
-} from '../types';
-import { holidayService } from './holiday.service';
-import { leaveService } from './leave.service';
-import { 
-  startOfMonth, 
-  endOfMonth, 
-  startOfWeek, 
-  endOfWeek, 
-  addDays, 
-  addMonths, 
-  differenceInDays,
-  format,
-  isSameDay,
-  isWeekend
-} from 'date-fns';
-import { fr } from 'date-fns/locale';
+  capacityApi,
+  ContractType,
+  WeekDay,
+  WorkContract,
+  ResourceAllocation,
+  DatePeriod,
+  UserCapacity,
+  CreateContractDto,
+  UpdateContractDto,
+  CreateAllocationDto,
+  UpdateAllocationDto,
+} from './api';
 
 class CapacityService {
-  private readonly CAPACITY_COLLECTION = 'userCapacities';
-  private readonly CONTRACTS_COLLECTION = 'workContracts';
-  private readonly ALLOCATIONS_COLLECTION = 'resourceAllocations';
-
-  // ========================================
-  // CALCUL DE CAPACITÉ UTILISATEUR
-  // ========================================
-
-  /**
-   * Calcule la capacité complète d'un utilisateur pour une période
-   */
-  async calculateUserCapacity(userId: string, period: DatePeriod): Promise<UserCapacity> {
-    try {
-      // Récupérer le contrat de l'utilisateur
-      const contract = await this.getUserContract(userId);
-      if (!contract) {
-        throw new Error(`Aucun contrat trouvé pour l'utilisateur ${userId}`);
-      }
-
-      // Calculer les jours théoriques selon le contrat
-      const theoreticalDays = await this.calculateTheoreticalDays(contract, period);
-
-      // Récupérer les jours fériés de la période
-      const holidays = await holidayService.getHolidaysByPeriod(period.startDate, period.endDate);
-      const holidayDays = holidays.filter(h => !h.isWorkingDay).length;
-
-      // Récupérer les congés approuvés
-      const leaves = await leaveService.getUserLeaves(userId, 'APPROVED');
-      const periodLeaves = leaves.filter(leave => 
-        this.isDateInPeriod(leave.startDate, period) || 
-        this.isDateInPeriod(leave.endDate, period)
-      );
-      const leaveDays = periodLeaves.reduce((sum, leave) => sum + leave.totalDays, 0);
-
-      // Calculer les jours disponibles
-      const availableDays = theoreticalDays - holidayDays - leaveDays;
-
-      // Récupérer les allocations actuelles
-      const allocations = await this.getUserAllocations(userId, period);
-      const plannedDays = allocations.reduce((sum, alloc) => sum + alloc.estimatedDays, 0);
-
-      // Calculer les jours restants
-      const remainingDays = availableDays - plannedDays;
-
-      // Générer les alertes
-      const alerts = await this.generateCapacityAlerts(userId, {
-        theoreticalDays,
-        availableDays,
-        plannedDays,
-        remainingDays,
-      });
-
-      // Calculer la répartition journalière
-      const workingDaysInPeriod = await this.calculateDailyCapacityForPeriod(contract, period);
-
-      const capacity: UserCapacity = {
-        userId,
-        period,
-        theoreticalDays,
-        availableDays,
-        plannedDays,
-        remainingDays,
-        overallocationDays: remainingDays < 0 ? Math.abs(remainingDays) : 0,
-        holidayDays,
-        leaveDays,
-        workingDaysInPeriod,
-        alerts,
-      };
-
-      // Sauvegarder en cache
-      await this.cacheUserCapacity(capacity);
-
-      return capacity;
-    } catch (error) {
-      console.error('Erreur lors du calcul de la capacité:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Calcule les jours théoriques selon le contrat
-   */
-  private async calculateTheoreticalDays(contract: WorkContract, period: DatePeriod): Promise<number> {
-    try {
-      let totalDays = 0;
-      const currentDate = new Date(period.startDate);
-
-      while (currentDate <= period.endDate) {
-        const dayOfWeek = this.getDayOfWeek(currentDate);
-        
-        // Vérifier si c'est un jour ouvré selon le contrat
-        if (contract.workingDays.includes(dayOfWeek)) {
-          // Calculer la capacité selon le pourcentage de temps de travail
-          const dailyCapacity = this.calculateDailyCapacity(contract, dayOfWeek);
-          totalDays += dailyCapacity;
-        }
-        
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-
-      return totalDays;
-    } catch (error) {
-      console.error('Erreur lors du calcul des jours théoriques:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Calcule la capacité journalière selon le contrat
-   */
-  private calculateDailyCapacity(contract: WorkContract, dayOfWeek: WeekDay): number {
-    // Si horaires spécifiques définis
-    if (contract.workingSchedule) {
-      const daySchedule = contract.workingSchedule.find(s => s.day === dayOfWeek);
-      if (daySchedule && daySchedule.isWorking) {
-        // Calculer en fonction des heures réelles vs heures standard
-        const standardHours = 7; // 7h par jour standard
-        const actualHours = daySchedule.totalHours;
-        return (actualHours / standardHours) * (contract.workingTimePercentage / 100);
-      }
-      return 0;
-    }
-
-    // Calcul simple basé sur le pourcentage de temps
-    return contract.workingTimePercentage / 100;
-  }
-
-  /**
-   * Calcule la capacité jour par jour pour une période
-   */
-  private async calculateDailyCapacityForPeriod(contract: WorkContract, period: DatePeriod): Promise<number[]> {
-    const dailyCapacities: number[] = [];
-    const currentDate = new Date(period.startDate);
-
-    while (currentDate <= period.endDate) {
-      const dayOfWeek = this.getDayOfWeek(currentDate);
-      
-      if (contract.workingDays.includes(dayOfWeek)) {
-        const capacity = this.calculateDailyCapacity(contract, dayOfWeek);
-        dailyCapacities.push(capacity);
-      } else {
-        dailyCapacities.push(0);
-      }
-      
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-
-    return dailyCapacities;
-  }
-
   // ========================================
   // GESTION DES CONTRATS
   // ========================================
 
   /**
-   * Récupère le contrat d'un utilisateur
+   * Récupère le contrat actif d'un utilisateur
    */
-  async getUserContract(userId: string): Promise<WorkContract | null> {
+  async getUserContract(userId: string): Promise<WorkContract> {
     try {
-      // Zero queries approach - fetch all and filter client-side
-      const snapshot = await getDocs(collection(db, this.CONTRACTS_COLLECTION));
-      const allContracts = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        startDate: doc.data().startDate?.toDate() || doc.data().startDate,
-        endDate: doc.data().endDate?.toDate() || doc.data().endDate,
-        createdAt: doc.data().createdAt?.toDate() || doc.data().createdAt,
-        updatedAt: doc.data().updatedAt?.toDate() || doc.data().updatedAt,
-      } as WorkContract));
-      
-      // Filter by userId client-side
-      const userContracts = allContracts.filter(contract => contract.userId === userId);
-      
-      if (userContracts.length === 0) {
-        // Retourner un contrat par défaut virtuel (non sauvegardé)
-        return this.getVirtualDefaultContract(userId);
-      }
-
-      // Sort by startDate and get the most recent contract
-      const sortedContracts = userContracts
-        .filter(contract => contract.startDate && contract.startDate <= new Date())
-        .sort((a, b) => (b.startDate?.getTime() || 0) - (a.startDate?.getTime() || 0));
-
-      return sortedContracts[0] || this.getVirtualDefaultContract(userId);
+      console.log('📝 CapacityService.getUserContract:', { userId });
+      return await capacityApi.getUserContract(userId);
     } catch (error) {
       console.error('Erreur lors de la récupération du contrat:', error);
-      return null;
+      throw error;
     }
   }
 
   /**
-   * Retourne un contrat par défaut virtuel (non sauvegardé)
+   * Récupère tous les contrats d'un utilisateur
    */
-  private getVirtualDefaultContract(userId: string): WorkContract {
-    return {
-      id: `virtual-${userId}`,
-      userId,
-      type: 'CDI',
-      workingTimePercentage: 100,
-      weeklyHours: 35,
-      workingDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
-      startDate: new Date(),
-      paidLeaveDays: 25,
-      isRemoteAllowed: false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+  async getUserContracts(userId: string): Promise<WorkContract[]> {
+    try {
+      console.log('📝 CapacityService.getUserContracts:', { userId });
+      return await capacityApi.getUserContracts(userId);
+    } catch (error) {
+      console.error('Erreur lors de la récupération des contrats:', error);
+      throw error;
+    }
   }
 
   /**
-   * Crée un contrat par défaut pour un utilisateur
+   * Récupère mon contrat actif
    */
-  async createDefaultContract(userId: string): Promise<WorkContract> {
+  async getMyContract(): Promise<WorkContract> {
     try {
-      const defaultContract: Omit<WorkContract, 'id'> = {
-        userId,
-        type: 'CDI',
-        workingTimePercentage: 100,
-        weeklyHours: 35,
-        workingDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
-        startDate: new Date(),
-        paidLeaveDays: 25,
-        isRemoteAllowed: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      const docRef = await addDoc(collection(db, this.CONTRACTS_COLLECTION), {
-        ...defaultContract,
-        startDate: Timestamp.fromDate(defaultContract.startDate),
-        createdAt: Timestamp.fromDate(defaultContract.createdAt),
-        updatedAt: Timestamp.fromDate(defaultContract.updatedAt),
-      });
-
-      return { id: docRef.id, ...defaultContract } as WorkContract;
+      console.log('📝 CapacityService.getMyContract');
+      return await capacityApi.getMyContract();
     } catch (error) {
-      console.error('Erreur lors de la création du contrat par défaut:', error);
+      console.error('Erreur lors de la récupération de mon contrat:', error);
       throw error;
     }
   }
@@ -285,58 +64,36 @@ class CapacityService {
   /**
    * Crée un nouveau contrat de travail
    */
-  async createContract(userId: string, contractData: Partial<WorkContract>): Promise<WorkContract> {
+  async createContract(
+    userId: string,
+    contractData: Partial<CreateContractDto>
+  ): Promise<WorkContract> {
     try {
-      console.log('📝 CapacityService.createContract - Début:', { userId, contractData });
-      
-      const newContract: Omit<WorkContract, 'id'> = {
-        userId,
-        type: contractData.type || 'CDI',
+      console.log('📝 CapacityService.createContract:', { userId, contractData });
+
+      const dto: CreateContractDto = {
+        type: contractData.type || ContractType.CDI,
         workingTimePercentage: contractData.workingTimePercentage || 100,
         weeklyHours: contractData.weeklyHours || 35,
-        workingDays: contractData.workingDays || ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
-        startDate: contractData.startDate || new Date(),
-        endDate: contractData.endDate || undefined,
+        workingDays: contractData.workingDays || [
+          WeekDay.MONDAY,
+          WeekDay.TUESDAY,
+          WeekDay.WEDNESDAY,
+          WeekDay.THURSDAY,
+          WeekDay.FRIDAY,
+        ],
+        startDate:
+          contractData.startDate || new Date().toISOString().split('T')[0],
+        endDate: contractData.endDate,
         paidLeaveDays: contractData.paidLeaveDays || 25,
         rttDays: contractData.rttDays || 0,
         isRemoteAllowed: contractData.isRemoteAllowed || false,
-        maxRemoteDaysPerWeek: contractData.maxRemoteDaysPerWeek || undefined,
-        hourlyRate: contractData.hourlyRate || undefined,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        maxRemoteDaysPerWeek: contractData.maxRemoteDaysPerWeek,
+        hourlyRate: contractData.hourlyRate,
+        workingSchedule: contractData.workingSchedule,
       };
 
-      // Filtrer les valeurs undefined avant la sauvegarde
-      const firestoreData: any = {
-        userId: newContract.userId,
-        type: newContract.type,
-        workingTimePercentage: newContract.workingTimePercentage,
-        weeklyHours: newContract.weeklyHours,
-        workingDays: newContract.workingDays,
-        startDate: Timestamp.fromDate(newContract.startDate),
-        paidLeaveDays: newContract.paidLeaveDays,
-        rttDays: newContract.rttDays,
-        isRemoteAllowed: newContract.isRemoteAllowed,
-        createdAt: Timestamp.fromDate(newContract.createdAt),
-        updatedAt: Timestamp.fromDate(newContract.updatedAt),
-      };
-
-      // Ajouter les champs optionnels seulement s'ils ne sont pas undefined
-      if (newContract.endDate) {
-        firestoreData.dueDate = Timestamp.fromDate(newContract.endDate);
-      }
-      if (newContract.maxRemoteDaysPerWeek !== undefined) {
-        firestoreData.maxRemoteDaysPerWeek = newContract.maxRemoteDaysPerWeek;
-      }
-      if (newContract.hourlyRate !== undefined) {
-        firestoreData.hourlyRate = newContract.hourlyRate;
-      }
-
-      console.log('💾 Sauvegarde Firestore:', firestoreData);
-      const docRef = await addDoc(collection(db, this.CONTRACTS_COLLECTION), firestoreData);
-      console.log('✅ Contrat créé avec ID:', docRef.id);
-
-      return { id: docRef.id, ...newContract } as WorkContract;
+      return await capacityApi.createContract(userId, dto);
     } catch (error) {
       console.error('Erreur lors de la création du contrat:', error);
       throw error;
@@ -344,37 +101,43 @@ class CapacityService {
   }
 
   /**
-   * Met à jour un contrat de travail
+   * Crée un contrat par défaut pour un utilisateur
    */
-  async updateContract(contractId: string, updates: Partial<WorkContract>): Promise<void> {
+  async createDefaultContract(userId: string): Promise<WorkContract> {
     try {
-      console.log('📝 CapacityService.updateContract - Début:', { contractId, updates });
-      
-      const docRef = doc(db, this.CONTRACTS_COLLECTION, contractId);
-      
-      // Préparer les données à mettre à jour en excluant les valeurs undefined
-      const updateData: any = {
-        updatedAt: Timestamp.fromDate(new Date()),
-      };
+      console.log('📝 CapacityService.createDefaultContract:', { userId });
+      return await this.createContract(userId, {});
+    } catch (error) {
+      console.error('Erreur lors de la création du contrat par défaut:', error);
+      throw error;
+    }
+  }
 
-      // Ajouter les champs seulement s'ils ne sont pas undefined
-      if (updates.type !== undefined) updateData.type = updates.type;
-      if (updates.workingTimePercentage !== undefined) updateData.workingTimePercentage = updates.workingTimePercentage;
-      if (updates.weeklyHours !== undefined) updateData.weeklyHours = updates.weeklyHours;
-      if (updates.workingDays !== undefined) updateData.workingDays = updates.workingDays;
-      if (updates.paidLeaveDays !== undefined) updateData.paidLeaveDays = updates.paidLeaveDays;
-      if (updates.rttDays !== undefined) updateData.rttDays = updates.rttDays;
-      if (updates.isRemoteAllowed !== undefined) updateData.isRemoteAllowed = updates.isRemoteAllowed;
-      if (updates.startDate !== undefined) updateData.startDate = Timestamp.fromDate(updates.startDate);
-      if (updates.endDate !== undefined) updateData.dueDate = Timestamp.fromDate(updates.endDate);
-      if (updates.maxRemoteDaysPerWeek !== undefined) updateData.maxRemoteDaysPerWeek = updates.maxRemoteDaysPerWeek;
-      if (updates.hourlyRate !== undefined) updateData.hourlyRate = updates.hourlyRate;
-
-      console.log('💾 Mise à jour Firestore:', updateData);
-      await updateDoc(docRef, updateData);
-      console.log('✅ Contrat mis à jour');
+  /**
+   * Met à jour un contrat
+   */
+  async updateContract(
+    contractId: string,
+    updates: Partial<UpdateContractDto>
+  ): Promise<WorkContract> {
+    try {
+      console.log('📝 CapacityService.updateContract:', { contractId, updates });
+      return await capacityApi.updateContract(contractId, updates);
     } catch (error) {
       console.error('Erreur lors de la mise à jour du contrat:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Supprime un contrat
+   */
+  async deleteContract(contractId: string): Promise<void> {
+    try {
+      console.log('📝 CapacityService.deleteContract:', { contractId });
+      await capacityApi.deleteContract(contractId);
+    } catch (error) {
+      console.error('Erreur lors de la suppression du contrat:', error);
       throw error;
     }
   }
@@ -384,341 +147,292 @@ class CapacityService {
   // ========================================
 
   /**
-   * Récupère les allocations d'un utilisateur pour une période
+   * Récupère les allocations d'un utilisateur
    */
-  async getUserAllocations(userId: string, period: DatePeriod): Promise<ResourceAllocation[]> {
+  async getUserAllocations(
+    userId: string,
+    period?: DatePeriod
+  ): Promise<ResourceAllocation[]> {
     try {
-      // Zero queries approach - fetch all and filter client-side
-      const snapshot = await getDocs(collection(db, this.ALLOCATIONS_COLLECTION));
-      const allAllocations = snapshot.docs.map(doc => ({
-        ...doc.data(),
-        startDate: doc.data().startDate?.toDate() || doc.data().startDate,
-        endDate: doc.data().endDate?.toDate() || doc.data().endDate,
-      })) as ResourceAllocation[];
-
-      // Filter by userId and period client-side
-      return allAllocations.filter(alloc => 
-        alloc.userId === userId && (
-          this.isDateInPeriod(alloc.startDate, period) || 
-          this.isDateInPeriod(alloc.endDate, period) ||
-          (alloc.startDate <= period.startDate && alloc.endDate >= period.endDate)
-        )
+      console.log('📝 CapacityService.getUserAllocations:', { userId, period });
+      return await capacityApi.getUserAllocations(
+        userId,
+        period?.startDate,
+        period?.endDate
       );
     } catch (error) {
-      console.error('Erreur lors de la récupération des allocations:', error);
-      return [];
+      console.error(
+        'Erreur lors de la récupération des allocations utilisateur:',
+        error
+      );
+      throw error;
     }
   }
 
   /**
-   * Crée une nouvelle allocation de ressource
+   * Récupère les allocations d'un projet
    */
-  async createAllocation(allocation: Omit<ResourceAllocation, 'estimatedDays'>): Promise<string> {
+  async getProjectAllocations(
+    projectId: string,
+    period?: DatePeriod
+  ): Promise<ResourceAllocation[]> {
     try {
-      // Calculer les jours estimés
-      const contract = await this.getUserContract(allocation.userId);
-      if (!contract) {
-        throw new Error('Contrat utilisateur introuvable');
-      }
-
-      const period: DatePeriod = {
-        startDate: allocation.startDate,
-        endDate: allocation.endDate,
-      };
-
-      const capacity = await this.calculateUserCapacity(allocation.userId, period);
-      const estimatedDays = (capacity.theoreticalDays * allocation.allocationPercentage) / 100;
-
-      const docRef = await addDoc(collection(db, this.ALLOCATIONS_COLLECTION), {
-        ...allocation,
-        estimatedDays,
-        startDate: Timestamp.fromDate(allocation.startDate),
-        endDate: Timestamp.fromDate(allocation.endDate),
+      console.log('📝 CapacityService.getProjectAllocations:', {
+        projectId,
+        period,
       });
+      return await capacityApi.getProjectAllocations(
+        projectId,
+        period?.startDate,
+        period?.endDate
+      );
+    } catch (error) {
+      console.error(
+        'Erreur lors de la récupération des allocations projet:',
+        error
+      );
+      throw error;
+    }
+  }
 
-      return docRef.id;
+  /**
+   * Récupère mes allocations
+   */
+  async getMyAllocations(period?: DatePeriod): Promise<ResourceAllocation[]> {
+    try {
+      console.log('📝 CapacityService.getMyAllocations:', { period });
+      return await capacityApi.getMyAllocations(
+        period?.startDate,
+        period?.endDate
+      );
+    } catch (error) {
+      console.error(
+        'Erreur lors de la récupération de mes allocations:',
+        error
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Crée une allocation de ressource
+   */
+  async createAllocation(
+    allocationData: CreateAllocationDto
+  ): Promise<ResourceAllocation> {
+    try {
+      console.log('📝 CapacityService.createAllocation:', { allocationData });
+      return await capacityApi.createAllocation(allocationData);
     } catch (error) {
       console.error('Erreur lors de la création de l\'allocation:', error);
       throw error;
     }
   }
 
-  // ========================================
-  // ALERTES ET RECOMMANDATIONS
-  // ========================================
-
   /**
-   * Génère les alertes de capacité
+   * Met à jour une allocation
    */
-  private async generateCapacityAlerts(userId: string, capacityData: {
-    theoreticalDays: number;
-    availableDays: number;
-    plannedDays: number;
-    remainingDays: number;
-  }): Promise<CapacityAlert[]> {
-    const alerts: CapacityAlert[] = [];
-    const { theoreticalDays, availableDays, plannedDays, remainingDays } = capacityData;
-
-    // Surallocation
-    if (remainingDays < 0) {
-      alerts.push({
-        type: 'OVERALLOCATION',
-        severity: Math.abs(remainingDays) > theoreticalDays * 0.2 ? 'CRITICAL' : 'HIGH',
-        message: `Surallocation de ${Math.abs(remainingDays).toFixed(1)} jours détectée`,
-        suggestedActions: [
-          'Réduire les allocations sur certains projets',
-          'Négocier les échéances avec les clients',
-          'Recruter du renfort temporaire',
-        ],
+  async updateAllocation(
+    allocationId: string,
+    updates: UpdateAllocationDto
+  ): Promise<ResourceAllocation> {
+    try {
+      console.log('📝 CapacityService.updateAllocation:', {
+        allocationId,
+        updates,
       });
+      return await capacityApi.updateAllocation(allocationId, updates);
+    } catch (error) {
+      console.error('Erreur lors de la mise à jour de l\'allocation:', error);
+      throw error;
     }
-
-    // Sous-utilisation
-    if (remainingDays > theoreticalDays * 0.5) {
-      alerts.push({
-        type: 'UNDERUTILIZATION',
-        severity: 'MEDIUM',
-        message: `Sous-utilisation importante: ${remainingDays.toFixed(1)} jours libres`,
-        suggestedActions: [
-          'Allouer à de nouveaux projets',
-          'Planifier de la formation',
-          'Anticiper les projets futurs',
-        ],
-      });
-    }
-
-    return alerts;
   }
 
   /**
-   * Détecte les conflits de congés avec les allocations
+   * Supprime une allocation
    */
-  async detectLeaveConflicts(userId: string, period: DatePeriod): Promise<CapacityAlert[]> {
+  async deleteAllocation(allocationId: string): Promise<void> {
     try {
-      const alerts: CapacityAlert[] = [];
-      
-      // Récupérer les congés et allocations
-      const leaves = await leaveService.getUserLeaves(userId, 'APPROVED');
-      const allocations = await this.getUserAllocations(userId, period);
-
-      // Détecter les chevauchements
-      leaves.forEach(leave => {
-        allocations.forEach(allocation => {
-          if (this.datesOverlap(
-            leave.startDate, leave.endDate,
-            allocation.startDate, allocation.endDate
-          )) {
-            alerts.push({
-              type: 'LEAVE_CONFLICT',
-              severity: 'HIGH',
-              message: `Conflit détecté: congés du ${format(leave.startDate, 'dd/MM/yyyy')} au ${format(leave.endDate, 'dd/MM/yyyy')} avec allocation projet`,
-              suggestedActions: [
-                'Réajuster les dates d\'allocation',
-                'Trouver un remplaçant temporaire',
-                'Reporter les congés si possible',
-              ],
-              affectedProjects: [allocation.projectId],
-            });
-          }
-        });
-      });
-
-      return alerts;
+      console.log('📝 CapacityService.deleteAllocation:', { allocationId });
+      await capacityApi.deleteAllocation(allocationId);
     } catch (error) {
-      console.error('Erreur lors de la détection des conflits:', error);
-      return [];
-    }
-  }
-
-  // ========================================
-  // MÉTRIQUES RH
-  // ========================================
-
-  /**
-   * Calcule les métriques RH pour une période
-   */
-  async calculateHRMetrics(period: DatePeriod, departmentFilter?: string): Promise<HRMetrics> {
-    try {
-      // Récupérer tous les utilisateurs actifs
-      // TODO: Intégrer avec le service utilisateur
-      const users: User[] = []; // À remplacer par un vrai appel
-
-      // Calculer les métriques globales
-      const totalEmployees = users.length;
-      const activeEmployees = users.filter(u => u.isActive).length;
-
-      let totalCapacityDays = 0;
-      let totalAllocatedDays = 0;
-      let totalLeaveDays = 0;
-
-      // Calculer pour chaque utilisateur
-      for (const user of users) {
-        if (departmentFilter && user.department !== departmentFilter) continue;
-
-        const capacity = await this.calculateUserCapacity(user.id, period);
-        totalCapacityDays += capacity.theoreticalDays;
-        totalAllocatedDays += capacity.plannedDays;
-        totalLeaveDays += capacity.leaveDays;
-      }
-
-      const averageUtilizationRate = totalCapacityDays > 0 
-        ? (totalAllocatedDays / totalCapacityDays) * 100 
-        : 0;
-
-      const overallocationPercentage = totalCapacityDays > 0 
-        ? Math.max(0, ((totalAllocatedDays - totalCapacityDays) / totalCapacityDays) * 100)
-        : 0;
-
-      // Métriques par département  
-      const departmentSet = new Set(users.map(u => u.department).filter(Boolean));
-      const departments = Array.from(departmentSet);
-      const departmentBreakdown: DepartmentMetrics[] = [];
-
-      for (const dept of departments) {
-        const deptUsers = users.filter(u => u.department === dept);
-        let deptCapacity = 0;
-        let deptAllocated = 0;
-
-        for (const user of deptUsers) {
-          const capacity = await this.calculateUserCapacity(user.id, period);
-          deptCapacity += capacity.theoreticalDays;
-          deptAllocated += capacity.plannedDays;
-        }
-
-        departmentBreakdown.push({
-          department: dept!,
-          employeeCount: deptUsers.length,
-          utilizationRate: deptCapacity > 0 ? (deptAllocated / deptCapacity) * 100 : 0,
-        });
-      }
-
-      // Métriques par type de contrat
-      const contractTypes = ['CDI', 'CDD', 'FREELANCE', 'INTERN', 'PART_TIME'];
-      const contractTypeBreakdown: ContractMetrics[] = [];
-
-      for (const type of contractTypes) {
-        const typeUsers = users.filter(async (user) => {
-          const contract = await this.getUserContract(user.id);
-          return contract?.type === type;
-        });
-
-        // TODO: Calculer les métriques correctement de manière asynchrone
-        contractTypeBreakdown.push({
-          contractType: type as any,
-          count: typeUsers.length,
-          averageHours: 35, // À calculer
-          utilizationRate: 0, // À calculer
-        });
-      }
-
-      return {
-        period,
-        totalEmployees,
-        activeEmployees,
-        averageUtilizationRate,
-        totalCapacityDays,
-        totalAllocatedDays,
-        totalLeaveDays,
-        overallocationPercentage,
-        departmentBreakdown,
-        contractTypeBreakdown,
-      };
-    } catch (error) {
-      console.error('Erreur lors du calcul des métriques RH:', error);
+      console.error('Erreur lors de la suppression de l\'allocation:', error);
       throw error;
     }
   }
 
   // ========================================
-  // CACHE ET OPTIMISATION
+  // CALCUL DE CAPACITÉ
   // ========================================
 
   /**
-   * Met en cache la capacité calculée
+   * Calcule la capacité complète d'un utilisateur pour une période
    */
-  private async cacheUserCapacity(capacity: UserCapacity): Promise<void> {
+  async calculateUserCapacity(
+    userId: string,
+    period: DatePeriod
+  ): Promise<UserCapacity> {
     try {
-      // Nettoyer les valeurs undefined pour Firestore
-      const cleanCapacity = {
-        ...capacity,
-        overallocationDays: capacity.overallocationDays ?? 0,
-        period: {
-          ...capacity.period,
-          startDate: Timestamp.fromDate(capacity.period.startDate),
-          endDate: Timestamp.fromDate(capacity.period.endDate),
-        },
-        calculatedAt: Timestamp.fromDate(new Date()),
-      };
+      console.log('📝 CapacityService.calculateUserCapacity:', {
+        userId,
+        period,
+      });
 
-      await addDoc(collection(db, this.CAPACITY_COLLECTION), cleanCapacity);
+      return await capacityApi.calculateUserCapacity(
+        userId,
+        period.startDate,
+        period.endDate,
+        period.label
+      );
     } catch (error) {
-      console.error('Erreur lors de la mise en cache:', error);
-      // Ne pas faire échouer le processus principal
+      console.error('Erreur lors du calcul de la capacité:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Calcule ma capacité pour une période
+   */
+  async calculateMyCapacity(period: DatePeriod): Promise<UserCapacity> {
+    try {
+      console.log('📝 CapacityService.calculateMyCapacity:', { period });
+
+      return await capacityApi.calculateMyCapacity(
+        period.startDate,
+        period.endDate,
+        period.label
+      );
+    } catch (error) {
+      console.error('Erreur lors du calcul de ma capacité:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Récupère la capacité en cache
+   */
+  async getCachedCapacity(userId: string, period: DatePeriod) {
+    try {
+      console.log('📝 CapacityService.getCachedCapacity:', { userId, period });
+
+      return await capacityApi.getCachedCapacity(
+        userId,
+        period.startDate,
+        period.endDate
+      );
+    } catch (error) {
+      console.error(
+        'Erreur lors de la récupération de la capacité en cache:',
+        error
+      );
+      throw error;
     }
   }
 
   // ========================================
-  // UTILITAIRES
+  // GÉNÉRATION DE PÉRIODES
   // ========================================
-
-  private getDayOfWeek(date: Date): WeekDay {
-    const days: WeekDay[] = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    return days[date.getDay()];
-  }
-
-  private isDateInPeriod(date: Date, period: DatePeriod): boolean {
-    return date >= period.startDate && date <= period.endDate;
-  }
-
-  private datesOverlap(start1: Date, end1: Date, start2: Date, end2: Date): boolean {
-    return start1 <= end2 && end1 >= start2;
-  }
 
   /**
    * Génère des périodes prédéfinies (mois, trimestre, année)
    */
-  generatePeriods(type: 'month' | 'quarter' | 'year', year: number): DatePeriod[] {
-    const periods: DatePeriod[] = [];
-
-    switch (type) {
-      case 'month':
-        for (let month = 0; month < 12; month++) {
-          const start = startOfMonth(new Date(year, month, 1));
-          const end = endOfMonth(start);
-          periods.push({
-            startDate: start,
-            endDate: end,
-            label: format(start, 'MMMM yyyy', { locale: fr }),
-          });
-        }
-        break;
-
-      case 'quarter':
-        for (let quarter = 0; quarter < 4; quarter++) {
-          const startMonth = quarter * 3;
-          const start = startOfMonth(new Date(year, startMonth, 1));
-          const end = endOfMonth(new Date(year, startMonth + 2, 1));
-          periods.push({
-            startDate: start,
-            endDate: end,
-            label: `Q${quarter + 1} ${year}`,
-          });
-        }
-        break;
-
-      case 'year':
-        const start = new Date(year, 0, 1);
-        const end = new Date(year, 11, 31);
-        periods.push({
-          startDate: start,
-          endDate: end,
-          label: `Année ${year}`,
-        });
-        break;
+  async generatePeriods(
+    type: 'month' | 'quarter' | 'year',
+    year: number
+  ): Promise<DatePeriod[]> {
+    try {
+      console.log('📝 CapacityService.generatePeriods:', { type, year });
+      return await capacityApi.generatePeriods(type, year);
+    } catch (error) {
+      console.error('Erreur lors de la génération des périodes:', error);
+      throw error;
     }
+  }
 
-    return periods;
+  /**
+   * Génère les périodes mensuelles pour une année
+   */
+  async generateMonthlyPeriods(year: number): Promise<DatePeriod[]> {
+    return this.generatePeriods('month', year);
+  }
+
+  /**
+   * Génère les périodes trimestrielles pour une année
+   */
+  async generateQuarterlyPeriods(year: number): Promise<DatePeriod[]> {
+    return this.generatePeriods('quarter', year);
+  }
+
+  /**
+   * Génère la période annuelle
+   */
+  async generateYearlyPeriod(year: number): Promise<DatePeriod[]> {
+    return this.generatePeriods('year', year);
+  }
+
+  // ========================================
+  // MÉTHODES UTILITAIRES
+  // ========================================
+
+  /**
+   * Calcule la capacité journalière pour une période
+   * Note: Cette méthode est conservée pour compatibilité mais pourrait être supprimée
+   * car le backend gère maintenant tous les calculs
+   */
+  async calculateDailyCapacityForPeriod(
+    userId: string,
+    period: DatePeriod
+  ): Promise<number[]> {
+    try {
+      // Récupérer la capacité complète (qui inclut workingDaysInPeriod)
+      const capacity = await this.calculateUserCapacity(userId, period);
+      return capacity.workingDaysInPeriod;
+    } catch (error) {
+      console.error(
+        'Erreur lors du calcul de la capacité journalière:',
+        error
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Vérifie si une date est dans une période
+   */
+  isDateInPeriod(date: Date | string, period: DatePeriod): boolean {
+    const checkDate = typeof date === 'string' ? new Date(date) : date;
+    const startDate = new Date(period.startDate);
+    const endDate = new Date(period.endDate);
+
+    return checkDate >= startDate && checkDate <= endDate;
+  }
+
+  /**
+   * Formate une date pour l'API (YYYY-MM-DD)
+   */
+  formatDateForAPI(date: Date): string {
+    return date.toISOString().split('T')[0];
+  }
+
+  /**
+   * Crée une période à partir de dates
+   */
+  createPeriod(
+    startDate: Date | string,
+    endDate: Date | string,
+    label?: string
+  ): DatePeriod {
+    return {
+      startDate:
+        typeof startDate === 'string'
+          ? startDate
+          : this.formatDateForAPI(startDate),
+      endDate:
+        typeof endDate === 'string' ? endDate : this.formatDateForAPI(endDate),
+      label,
+    };
   }
 }
 
 export const capacityService = new CapacityService();
+export default capacityService;

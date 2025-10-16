@@ -143,6 +143,7 @@ model User {
   workContracts       WorkContract[]
   resourceAllocations ResourceAllocation[]
   userCapacities      UserCapacity[]
+  userSkills          UserSkill[]
 
   @@map("users")
   @@index([email])
@@ -257,6 +258,7 @@ model Task {
   documents       Document[]
   activities      Activity[]
   timeEntries     TimeEntry[]
+  taskSkills      TaskSkill[]
 
   @@map("tasks")
   @@index([projectId, status, priority])
@@ -1090,4 +1092,91 @@ model UserCapacity {
   @@index([userId, periodStartDate, periodEndDate])
   @@index([periodStartDate, periodEndDate])
   @@index([calculatedAt])
+}
+
+// ==========================================
+// SKILLS MANAGEMENT
+// ==========================================
+
+enum SkillCategory {
+  TECHNICAL
+  MANAGEMENT
+  DOMAIN
+  METHODOLOGY
+  SOFT
+  LANGUAGE
+}
+
+enum SkillLevel {
+  BEGINNER    // Niveau 1 - Débutant
+  INTERMEDIATE // Niveau 2 - Intermédiaire
+  EXPERT      // Niveau 3 - Expert
+}
+
+model Skill {
+  id          String        @id @default(uuid())
+  name        String        @unique
+  category    SkillCategory
+  description String?
+  isActive    Boolean       @default(true) @map("is_active")
+  usageCount  Int           @default(0) @map("usage_count")
+
+  // Relations
+  userSkills  UserSkill[]
+  taskSkills  TaskSkill[]
+
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  @@map("skills")
+  @@index([category])
+  @@index([isActive])
+  @@index([name])
+}
+
+model UserSkill {
+  id       String     @id @default(uuid())
+  
+  userId   String     @map("user_id")
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  skillId  String     @map("skill_id")
+  skill    Skill      @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  
+  level    SkillLevel // Niveau de maîtrise
+  
+  yearsOfExperience Int?       @map("years_of_experience")
+  lastUsedAt        DateTime?  @map("last_used_at")
+  certifications    String[]   @default([])
+  notes             String?
+
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  @@map("user_skills")
+  @@unique([userId, skillId])
+  @@index([userId])
+  @@index([skillId])
+  @@index([level])
+}
+
+model TaskSkill {
+  id            String     @id @default(uuid())
+  
+  taskId        String     @map("task_id")
+  task          Task       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  
+  skillId       String     @map("skill_id")
+  skill         Skill      @relation(fields: [skillId], references: [id], onDelete: Cascade)
+  
+  minimumLevel  SkillLevel @map("minimum_level")
+  isRequired    Boolean    @default(true) @map("is_required")
+  
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  @@map("task_skills")
+  @@unique([taskId, skillId])
+  @@index([taskId])
+  @@index([skillId])
 }

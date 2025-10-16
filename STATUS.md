@@ -67,9 +67,11 @@
 | 20 | **Webhooks** | ✅ | ✅ | ⏳ 85% | Service 20 | 🟡 En validation |
 | 21 | **Notifications** (v2) | ✅ | ✅ | ✅ 100% | Service 21 | 🟢 Complet |
 | 22 | **Analytics** | ✅ | ✅ | ✅ 100% | Service 22 | 🟢 Complet |
-| 23 | **Capacity** | ✅ | ✅ | ✅ 100% | Service 23 | 🎊 **NOUVEAU** |
+| 23 | **Capacity** | ✅ | ✅ | ✅ 100% | Service 23 | 🟢 Complet |
+| 24 | **Skills** | 🔧 Schéma | ⏳ | ⏳ | Service 24 | 🟡 **EN COURS (40%)** |
 
 **🎉 MILESTONE ATTEINT : 65.71% DE LA MIGRATION COMPLÉTÉE !** (23/35 services)
+**⏳ Service 24 Skills en cours** : Schéma Prisma ✅ | Backend ⏳ | Tests ⏳ | Frontend ⏳
 
 #### Dernières Migrations (Services 20-23) 🆕
 

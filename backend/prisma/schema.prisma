@@ -1,0 +1,862 @@
+// Prisma Schema - Orchestr'A Database
+// Documentation: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum Role {
+  ADMIN
+  RESPONSABLE
+  MANAGER
+  TEAM_LEAD
+  CONTRIBUTOR
+  VIEWER
+}
+
+enum ProjectStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+  COMPLETED
+  CANCELLED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum MilestoneStatus {
+  UPCOMING
+  IN_PROGRESS
+  COMPLETED
+  DELAYED
+  CANCELLED
+}
+
+enum MilestoneType {
+  MAJOR
+  MINOR
+  RELEASE
+  REVIEW
+  DECISION
+}
+
+enum ImpactLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  COMPLETED
+  CANCELLED
+}
+
+enum LeaveType {
+  PAID_LEAVE
+  SICK_LEAVE
+  UNPAID_LEAVE
+  RTT
+  TRAINING
+  OTHER
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_COMPLETED
+  PROJECT_UPDATED
+  LEAVE_APPROVED
+  LEAVE_REJECTED
+  COMMENT_ADDED
+  DEADLINE_APPROACHING
+  SYSTEM
+}
+
+// ==========================================
+// MODELS - Core Entities
+// ==========================================
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String    @map("password_hash")
+  firstName     String    @map("first_name")
+  lastName      String    @map("last_name")
+  role          Role      @default(CONTRIBUTOR)
+  isActive      Boolean   @default(true) @map("is_active")
+
+  // Relations
+  departmentId  String?   @map("department_id")
+  department    Department? @relation(fields: [departmentId], references: [id])
+
+  // Timestamps
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  lastLoginAt   DateTime? @map("last_login_at")
+
+  // Profile fields (extended for sessions 11-15)
+  avatarUrl       String?   @map("avatar_url")
+  phoneNumber     String?   @map("phone_number")
+  jobTitle        String?   @map("job_title")
+  bio             String?   @db.Text
+  preferences     Json?     // theme, language, notifications settings
+  lastActivityAt  DateTime? @map("last_activity_at")
+
+  // Relations inversées
+  projects         ProjectMember[]
+  tasks            Task[]          @relation("TaskAssignee")
+  comments         Comment[]
+  leaves           Leave[]
+  notifications    Notification[]
+  activities       Activity[]
+  documents        Document[]      @relation("DocumentUploader")
+  simpleTasksAssigned SimpleTask[] @relation("SimpleTaskAssignee")
+  simpleTasksCreated  SimpleTask[] @relation("SimpleTaskCreator")
+  teleworkOverrides   TeleworkOverride[]
+  personalTodos       PersonalTodo[]
+  timeEntries         TimeEntry[]
+
+  @@map("users")
+  @@index([email])
+  @@index([role])
+  @@index([departmentId])
+}
+
+model Department {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique
+  description String?  @db.Text
+  color       String?
+  budget      Float?
+
+  managerId   String?  @map("manager_id")
+
+  isActive    Boolean  @default(true) @map("is_active")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  users       User[]
+
+  @@map("departments")
+}
+
+model Project {
+  id           String        @id @default(uuid())
+  name         String
+  description  String?       @db.Text
+  status       ProjectStatus @default(DRAFT)
+  priority     Priority      @default(MEDIUM)
+
+  budget       Decimal?      @db.Decimal(12, 2)
+  startDate    DateTime      @map("start_date")
+  dueDate      DateTime      @map("due_date")
+
+  managerId    String        @map("manager_id")
+
+  // Métadonnées flexibles (JSONB)
+  metadata     Json?
+  tags         String[]
+
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  members      ProjectMember[]
+  tasks        Task[]
+  documents    Document[]
+  milestones   Milestone[]
+  activities   Activity[]
+  epics        Epic[]
+  timeEntries  TimeEntry[]
+
+  @@map("projects")
+  @@index([status, priority, startDate])
+  @@index([managerId])
+}
+
+model ProjectMember {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  userId    String   @map("user_id")
+  role      String   // Rôle dans le projet (différent du rôle global)
+  joinedAt  DateTime @default(now()) @map("joined_at")
+
+  // Relations
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+  @@index([projectId])
+  @@index([userId])
+}
+
+model Task {
+  id              String     @id @default(uuid())
+  title           String
+  description     String?    @db.Text
+  status          TaskStatus @default(TODO)
+  priority        Priority   @default(MEDIUM)
+
+  projectId       String     @map("project_id")
+  project         Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  assigneeId      String?    @map("assignee_id")
+  assignee        User?      @relation("TaskAssignee", fields: [assigneeId], references: [id])
+
+  estimatedHours  Int?       @map("estimated_hours")
+  actualHours     Int?       @map("actual_hours")
+
+  dueDate         DateTime?  @map("due_date")
+  completedAt     DateTime?  @map("completed_at")
+
+  // Dépendances (array de task IDs)
+  dependencies    String[]
+
+  // Métadonnées
+  tags            String[]
+  metadata        Json?
+
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  comments        Comment[]
+  documents       Document[]
+  activities      Activity[]
+  timeEntries     TimeEntry[]
+
+  @@map("tasks")
+  @@index([projectId, status, priority])
+  @@index([assigneeId, status, dueDate])
+}
+
+model Milestone {
+  id          String          @id @default(uuid())
+  projectId   String          @map("project_id")
+
+  // Identité
+  code        String          @default("")
+  name        String
+  description String          @default("") @db.Text
+  type        MilestoneType   @default(MINOR)
+
+  // Timing
+  startDate   DateTime?       @map("start_date")
+  dueDate     DateTime        @map("due_date")
+  followsTasks Boolean        @default(false) @map("follows_tasks")
+  isKeyDate   Boolean         @default(false) @map("is_key_date")
+
+  // Livrables et critères (stockés en JSON)
+  deliverables      Json        @default("[]")
+  successCriteria   String[]    @default([]) @map("success_criteria")
+
+  // Responsables
+  ownerId     String          @map("owner_id")
+  reviewers   String[]        @default([])
+
+  // État
+  status            MilestoneStatus @default(UPCOMING)
+  completionRate    Int             @default(0) @map("completion_rate")
+
+  // Dépendances (stockées en JSON)
+  dependsOn   Json            @default("[]") @map("depends_on")
+  epicIds     String[]        @default([]) @map("epic_ids")
+  taskIds     String[]        @default([]) @map("task_ids")
+
+  // Validation
+  validationRequired Boolean   @default(false) @map("validation_required")
+  validatedBy        String?   @map("validated_by")
+  validatedAt        DateTime? @map("validated_at")
+  validationNotes    String?   @db.Text @map("validation_notes")
+
+  // Impact
+  impact          ImpactLevel @default(MEDIUM)
+  affectedTeams   String[]    @default([]) @map("affected_teams")
+
+  // Visualisation
+  color           String      @default("#3b82f6")
+  icon            String?
+  showOnRoadmap   Boolean     @default(true) @map("show_on_roadmap")
+
+  // Métadonnées
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  // Relations
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("milestones")
+  @@index([projectId, dueDate])
+  @@index([status])
+  @@index([ownerId])
+}
+
+// ==========================================
+// MODELS - Support Entities
+// ==========================================
+
+model Comment {
+  id        String   @id @default(uuid())
+  taskId    String   @map("task_id")
+  userId    String   @map("user_id")
+  content   String   @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("comments")
+  @@index([taskId, createdAt])
+  @@index([userId])
+}
+
+model Document {
+  id           String    @id @default(uuid())
+  name         String
+  originalName String    @map("original_name")
+  type         String
+  size         BigInt
+
+  storagePath  String    @map("storage_path") // Chemin dans MinIO
+
+  projectId    String?   @map("project_id")
+  project      Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  taskId       String?   @map("task_id")
+  task         Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  uploadedBy   String    @map("uploaded_by")
+  uploader     User      @relation("DocumentUploader", fields: [uploadedBy], references: [id])
+
+  isPublic     Boolean   @default(false) @map("is_public")
+
+  metadata     Json?
+  tags         String[]
+
+  uploadedAt   DateTime  @default(now()) @map("uploaded_at")
+
+  @@map("documents")
+  @@index([projectId, uploadedAt])
+  @@index([taskId])
+  @@index([uploadedBy])
+}
+
+model Notification {
+  id        String             @id @default(uuid())
+  userId    String             @map("user_id")
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type      NotificationType
+  title     String
+  message   String             @db.Text
+
+  isRead    Boolean            @default(false) @map("is_read")
+  readAt    DateTime?          @map("read_at")
+
+  // Liens vers ressources
+  resourceType String?         @map("resource_type") // 'project', 'task', etc.
+  resourceId   String?         @map("resource_id")
+
+  metadata  Json?
+
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  @@map("notifications")
+  @@index([userId, isRead, createdAt])
+}
+
+model Activity {
+  id          String   @id @default(uuid())
+  userId      String?  @map("user_id")
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  action      String
+  resource    String?
+  resourceId  String?  @map("resource_id")
+
+  projectId   String?  @map("project_id")
+  project     Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  taskId      String?  @map("task_id")
+  task        Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  status      String   // 'success', 'error'
+  error       String?  @db.Text
+  duration    Int?     // milliseconds
+
+  metadata    Json?    // IP, User-Agent, etc.
+
+  timestamp   DateTime @default(now())
+
+  @@map("activities")
+  @@index([userId, timestamp])
+  @@index([projectId, timestamp])
+}
+
+// ==========================================
+// MODELS - HR (Leaves)
+// ==========================================
+
+model Leave {
+  id          String      @id @default(uuid())
+  userId      String      @map("user_id")
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type        LeaveType
+  status      LeaveStatus @default(PENDING)
+
+  startDate   DateTime    @map("start_date")
+  endDate     DateTime    @map("end_date")
+  days        Decimal     @db.Decimal(4, 1) // Ex: 2.5 jours
+
+  reason      String?     @db.Text
+
+  approverId  String?     @map("approver_id")
+  approvedAt  DateTime?   @map("approved_at")
+
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  @@map("leaves")
+  @@index([userId, status])
+  @@index([startDate, endDate])
+}
+
+// ==========================================
+// MODELS - Simple Tasks (Personal Tasks)
+// ==========================================
+
+enum SimpleTaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+enum SimpleTaskPriority {
+  P0
+  P1
+  P2
+  P3
+}
+
+model SimpleTask {
+  id          String              @id @default(uuid())
+  title       String
+  description String              @default("") @db.Text
+
+  date        DateTime            // Date unique de la tâche
+  timeStart   String              @map("time_start") // Format "HH:mm"
+  timeEnd     String              @map("time_end")   // Format "HH:mm"
+
+  assignedTo  String              @map("assigned_to")
+  assignee    User                @relation("SimpleTaskAssignee", fields: [assignedTo], references: [id], onDelete: Cascade)
+
+  priority    SimpleTaskPriority  @default(P3)
+  status      SimpleTaskStatus    @default(TODO)
+
+  createdBy   String              @map("created_by")
+  creator     User                @relation("SimpleTaskCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+
+  @@map("simple_tasks")
+  @@index([assignedTo, date])
+  @@index([status])
+  @@index([date])
+}
+
+// ==========================================
+// MODELS - Telework Management
+// ==========================================
+
+enum TeleworkMode {
+  REMOTE
+  ONSITE
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model TeleworkOverride {
+  id        String          @id @default(uuid())
+  userId    String          @map("user_id")
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  date      DateTime        // Date du télétravail exceptionnel
+  mode      TeleworkMode    @default(REMOTE)
+
+  status    ApprovalStatus  @default(PENDING) @map("approval_status")
+  reason    String?         @db.Text // Raison de la demande
+
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  @@map("telework_overrides")
+  @@index([userId, date])
+  @@index([date, status])
+}
+
+// ==========================================
+// MODELS - Personal Todos
+// ==========================================
+
+model PersonalTodo {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  text        String
+  completed   Boolean   @default(false)
+  priority    Int       @default(3) // 1=high, 2=medium, 3=low
+
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("personal_todos")
+  @@index([userId, completed])
+  @@index([createdAt])
+}
+
+// ==========================================
+// MODELS - Epics
+// ==========================================
+
+enum EpicStatus {
+  UPCOMING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Epic {
+  id              String      @id @default(uuid())
+  projectId       String      @map("project_id")
+  project         Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  code            String      // EP-XXX
+  name            String
+  description     String      @default("") @db.Text
+
+  status          EpicStatus  @default(UPCOMING)
+  priority        Priority    @default(MEDIUM)
+  risk            RiskLevel   @default(MEDIUM)
+
+  startDate       DateTime?   @map("start_date")
+  endDate         DateTime?   @map("end_date")
+
+  progress        Int         @default(0) // 0-100
+
+  ownerId         String      @map("owner_id")
+  stakeholders    String[]    @default([])
+
+  // Relations avec tâches
+  taskIds         String[]    @default([]) @map("task_ids")
+  taskCount       Int         @default(0) @map("task_count")
+  completedTaskCount Int      @default(0) @map("completed_task_count")
+
+  // Dépendances
+  dependencies    Json        @default("[]") // Array d'objets {epicId, type}
+
+  // Business Value
+  businessValue   Int?        @map("business_value")
+
+  // Métadonnées
+  tags            String[]
+  metadata        Json?
+
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  @@map("epics")
+  @@index([projectId, status])
+  @@index([ownerId])
+  @@index([code])
+}
+
+// ==========================================
+// MODELS - Time Entries
+// ==========================================
+
+enum TimeEntryType {
+  TASK
+  MEETING
+  SUPPORT
+  DEVELOPMENT
+  OTHER
+}
+
+model TimeEntry {
+  id          String         @id @default(uuid())
+  userId      String         @map("user_id")
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  projectId   String?        @map("project_id")
+  project     Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  taskId      String?        @map("task_id")
+  task        Task?          @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  type        TimeEntryType  @default(TASK)
+  description String?        @db.Text
+
+  date        DateTime       // Date de la saisie
+  duration    Int            // Durée en minutes
+
+  isBillable  Boolean        @default(true) @map("is_billable")
+
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@map("time_entries")
+  @@index([userId, date])
+  @@index([projectId, date])
+  @@index([taskId])
+}
+
+// ==========================================
+// MODELS - School Holidays & Holidays
+// ==========================================
+
+enum SchoolHolidayZone {
+  A
+  B
+  C
+  ALL
+}
+
+enum SchoolHolidayPeriod {
+  TOUSSAINT
+  NOEL
+  HIVER
+  PRINTEMPS
+  ETE
+}
+
+enum HolidayType {
+  FIXED
+  CALCULATED
+  CUSTOM
+}
+
+model SchoolHoliday {
+  id          String                @id @default(uuid())
+  name        String                // Ex: "Vacances d'hiver 2025 - Zone A"
+  period      SchoolHolidayPeriod   // TOUSSAINT, NOEL, HIVER, PRINTEMPS, ETE
+  zone        SchoolHolidayZone     // A, B, C, ou ALL
+  startDate   DateTime              @map("start_date")
+  endDate     DateTime              @map("end_date")
+  year        Int                   // Année scolaire (2024 pour 2024-2025)
+
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  @@map("school_holidays")
+  @@index([year, zone])
+  @@index([startDate, endDate])
+  @@index([period, zone])
+}
+
+model Holiday {
+  id            String      @id @default(uuid())
+  name          String      // Ex: "Jour de l'An"
+  date          DateTime    // Date du jour férié
+  type          HolidayType // FIXED, CALCULATED, CUSTOM
+  isNational    Boolean     @default(true) @map("is_national") // Jour férié national
+  regions       String[]    @default([]) // Spécifique régions (Alsace, Moselle)
+  isWorkingDay  Boolean     @default(false) @map("is_working_day") // Override manuel
+
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  @@map("holidays")
+  @@index([date])
+  @@unique([name, date])
+}
+
+// ==========================================
+// MODELS - System Settings
+// ==========================================
+
+model SystemSettings {
+  id                  String   @id @default(uuid())
+
+  // Firebase/Database Configuration
+  autoBackup          Boolean  @default(true) @map("auto_backup")
+  backupFrequency     String   @default("daily") @map("backup_frequency") // daily, weekly, monthly
+  backupRetention     Int      @default(30) @map("backup_retention") // days
+  indexOptimization   Boolean  @default(true) @map("index_optimization")
+
+  // Email Configuration
+  emailEnabled        Boolean  @default(false) @map("email_enabled")
+  smtpHost            String?  @map("smtp_host")
+  smtpPort            Int?     @default(587) @map("smtp_port")
+  smtpUser            String?  @map("smtp_user")
+  smtpPassword        String?  @map("smtp_password") // Encrypted
+  fromEmail           String   @default("noreply@orchestr-a.fr") @map("from_email")
+  fromName            String   @default("Orchestr'A") @map("from_name")
+  notificationsEnabled Boolean @default(true) @map("notifications_enabled")
+  dailyDigest         Boolean  @default(false) @map("daily_digest")
+
+  // System Limits
+  maxProjects         Int      @default(100) @map("max_projects")
+  maxUsers            Int      @default(50) @map("max_users")
+  maxTasksPerProject  Int      @default(1000) @map("max_tasks_per_project")
+  maxFileSize         Int      @default(50) @map("max_file_size") // MB
+  maxStoragePerUser   Int      @default(1000) @map("max_storage_per_user") // MB
+
+  // Maintenance Mode
+  maintenanceMode     Boolean  @default(false) @map("maintenance_mode")
+  maintenanceMessage  String?  @map("maintenance_message")
+
+  // Audit
+  lastModifiedBy      String?  @map("last_modified_by")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("system_settings")
+}
+
+// ==========================================
+// MODELS - Webhooks (Service 20)
+// ==========================================
+
+enum WebhookEvent {
+  PROJECT_CREATED
+  PROJECT_UPDATED
+  PROJECT_DELETED
+  TASK_CREATED
+  TASK_UPDATED
+  TASK_DELETED
+  TASK_ASSIGNED
+  TASK_COMPLETED
+  TASK_STATUS_CHANGED
+  COMMENT_CREATED
+  DOCUMENT_UPLOADED
+  DOCUMENT_DELETED
+  USER_CREATED
+  USER_UPDATED
+  TEAM_MEMBER_ADDED
+  TEAM_MEMBER_REMOVED
+  LEAVE_REQUESTED
+  LEAVE_APPROVED
+  LEAVE_REJECTED
+}
+
+enum WebhookStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  RETRYING
+}
+
+model Webhook {
+  id          String         @id @default(uuid())
+  name        String
+  description String?        @db.Text
+  url         String         // Endpoint URL to call
+  secret      String?        // HMAC signature secret
+
+  // Event subscriptions
+  events      WebhookEvent[] // Array of subscribed events
+
+  // HTTP configuration
+  headers     Json?          // Custom HTTP headers (JSON object)
+
+  // Retry configuration
+  retryConfig Json?          // { maxRetries: 3, retryDelay: 1000, backoffMultiplier: 2 }
+
+  // State
+  isActive    Boolean        @default(true) @map("is_active")
+
+  // Ownership
+  createdBy   String         @map("created_by")
+
+  // Statistics
+  lastTriggeredAt DateTime?  @map("last_triggered_at")
+  triggerCount    Int        @default(0) @map("trigger_count")
+  failureCount    Int        @default(0) @map("failure_count")
+
+  // Timestamps
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  // Relations
+  logs        WebhookLog[]
+
+  @@map("webhooks")
+  @@index([isActive, createdBy])
+  @@index([createdAt])
+}
+
+model WebhookLog {
+  id         String        @id @default(uuid())
+  webhookId  String        @map("webhook_id")
+  webhook    Webhook       @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  // Event info
+  event      WebhookEvent
+  payload    Json          // Event data sent
+
+  // Execution result
+  status     WebhookStatus @default(PENDING)
+  statusCode Int?          @map("status_code") // HTTP status code
+  response   Json?         // Response body (truncated if large)
+  error      String?       @db.Text // Error message if failed
+
+  // Retry tracking
+  retryCount Int           @default(0) @map("retry_count")
+  nextRetryAt DateTime?    @map("next_retry_at")
+
+  // Timestamps
+  createdAt  DateTime      @default(now()) @map("created_at")
+  executedAt DateTime?     @map("executed_at")
+
+  @@map("webhook_logs")
+  @@index([webhookId, createdAt])
+  @@index([status, nextRetryAt])
+  @@index([event, createdAt])
+}

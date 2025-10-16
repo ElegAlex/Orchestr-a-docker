@@ -1,269 +1,235 @@
 import {
-  collection,
-  doc,
-  addDoc,
-  updateDoc,
-  getDocs,
-  query,
-  where,
-  orderBy,
-  limit,
-  serverTimestamp,
-  Timestamp,
-  writeBatch
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
+  notificationsAPI,
+  Notification,
+  NotificationType,
+  CreateNotificationRequest,
+  FilterNotificationRequest,
+} from './api/notifications.api';
 
-// =======================================================================================
-// TYPES & INTERFACES
-// =======================================================================================
-
-export interface Notification {
-  id: string;
-  userId: string;
-  type: 'workflow_approval' | 'workflow_complete' | 'workflow_notification' | 'system' | 'reminder';
-  title: string;
-  message: string;
-  isRead: boolean;
-  createdAt: Date;
-  readAt?: Date;
-  data?: any;
-  priority?: 'low' | 'medium' | 'high' | 'critical';
-  category?: string;
-  expiresAt?: Date;
-}
-
-export interface NotificationRequest {
-  userId: string;
-  type: Notification['type'];
-  title: string;
-  message: string;
-  data?: any;
-  priority?: Notification['priority'];
-  category?: string;
-  expiresAt?: Date;
-}
-
-// =======================================================================================
-// SERVICE PRINCIPAL
-// =======================================================================================
-
+/**
+ * Notification Service
+ * Service métier pour la gestion des notifications utilisateur
+ * Migration: Firebase Firestore → REST API
+ */
 class NotificationService {
-  private readonly NOTIFICATIONS_COLLECTION = 'notifications';
-  private readonly NOTIFICATION_SETTINGS_COLLECTION = 'notification_settings';
-
   /**
-   * Envoyer une notification
+   * Créer une notification (ADMIN uniquement)
    */
-  async sendNotification(request: NotificationRequest): Promise<Notification> {
-    try {
-      const notification: Omit<Notification, 'id'> = {
-        ...request,
-        isRead: false,
-        createdAt: new Date(),
-        priority: request.priority || 'medium'
-      };
-
-      const docRef = await addDoc(collection(db, this.NOTIFICATIONS_COLLECTION), {
-        ...notification,
-        createdAt: serverTimestamp()
-      });
-
-      const createdNotification = {
-        id: docRef.id,
-        ...notification
-      };
-
-      // Envoyer notification push si configuré
-      await this.sendPushNotification(createdNotification);
-
-      return createdNotification;
-    } catch (error) {
-      console.error('Error sending notification:', error);
-      throw error;
-    }
+  async createNotification(data: CreateNotificationRequest): Promise<Notification> {
+    return await notificationsAPI.create(data);
   }
 
   /**
-   * Récupérer les notifications d'un utilisateur
+   * Récupérer les notifications de l'utilisateur connecté
    */
   async getUserNotifications(
-    userId: string,
     unreadOnly: boolean = false,
-    maxCount: number = 50
+    limit: number = 50,
   ): Promise<Notification[]> {
-    try {
-      let q = query(
-        collection(db, this.NOTIFICATIONS_COLLECTION),
-        where('userId', '==', userId),
-        orderBy('createdAt', 'desc'),
-        limit(maxCount)
-      );
+    const filters: FilterNotificationRequest = {
+      limit,
+    };
 
-      if (unreadOnly) {
-        q = query(
-          collection(db, this.NOTIFICATIONS_COLLECTION),
-          where('userId', '==', userId),
-          where('isRead', '==', false),
-          orderBy('createdAt', 'desc'),
-          limit(maxCount)
-        );
-      }
-
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate?.() || new Date()
-      } as Notification));
-    } catch (error) {
-      console.error('Error getting user notifications:', error);
-      return [];
+    if (unreadOnly) {
+      filters.isRead = false;
     }
+
+    return await notificationsAPI.findAll(filters);
+  }
+
+  /**
+   * Récupérer toutes les notifications avec filtres personnalisés
+   */
+  async getNotifications(filters?: FilterNotificationRequest): Promise<Notification[]> {
+    return await notificationsAPI.findAll(filters);
+  }
+
+  /**
+   * Compter les notifications non lues
+   */
+  async getUnreadCount(): Promise<number> {
+    const result = await notificationsAPI.getUnreadCount();
+    return result.count;
+  }
+
+  /**
+   * Récupérer une notification par ID
+   */
+  async getNotification(id: string): Promise<Notification> {
+    return await notificationsAPI.findOne(id);
   }
 
   /**
    * Marquer une notification comme lue
    */
-  async markAsRead(notificationId: string): Promise<void> {
-    try {
-      await updateDoc(doc(db, this.NOTIFICATIONS_COLLECTION, notificationId), {
-        isRead: true,
-        readAt: serverTimestamp()
-      });
-    } catch (error) {
-      console.error('Error marking notification as read:', error);
-      throw error;
+  async markAsRead(id: string): Promise<void> {
+    await notificationsAPI.markAsRead(id);
+  }
+
+  /**
+   * Marquer une notification comme non lue
+   */
+  async markAsUnread(id: string): Promise<void> {
+    await notificationsAPI.markAsUnread(id);
+  }
+
+  /**
+   * Marquer toutes les notifications comme lues
+   */
+  async markAllAsRead(): Promise<number> {
+    const result = await notificationsAPI.markAllAsRead();
+    return result.count;
+  }
+
+  /**
+   * Supprimer une notification
+   */
+  async deleteNotification(id: string): Promise<void> {
+    await notificationsAPI.remove(id);
+  }
+
+  /**
+   * Supprimer toutes les notifications lues
+   */
+  async deleteAllRead(): Promise<number> {
+    const result = await notificationsAPI.removeAllRead();
+    return result.count;
+  }
+
+  /**
+   * Formater le type de notification pour l'UI
+   */
+  formatNotificationType(type: NotificationType): { label: string; icon: string; color: string } {
+    const formats: Record<NotificationType, { label: string; icon: string; color: string }> = {
+      TASK_ASSIGNED: {
+        label: 'Tâche assignée',
+        icon: '📋',
+        color: 'blue',
+      },
+      TASK_COMPLETED: {
+        label: 'Tâche terminée',
+        icon: '✅',
+        color: 'green',
+      },
+      PROJECT_UPDATED: {
+        label: 'Projet mis à jour',
+        icon: '📁',
+        color: 'purple',
+      },
+      LEAVE_APPROVED: {
+        label: 'Congé approuvé',
+        icon: '✔️',
+        color: 'green',
+      },
+      LEAVE_REJECTED: {
+        label: 'Congé refusé',
+        icon: '❌',
+        color: 'red',
+      },
+      COMMENT_ADDED: {
+        label: 'Nouveau commentaire',
+        icon: '💬',
+        color: 'gray',
+      },
+      DEADLINE_APPROACHING: {
+        label: 'Échéance proche',
+        icon: '⏰',
+        color: 'orange',
+      },
+      SYSTEM: {
+        label: 'Notification système',
+        icon: '🔔',
+        color: 'gray',
+      },
+    };
+
+    return formats[type] || {
+      label: type,
+      icon: '🔔',
+      color: 'gray',
+    };
+  }
+
+  /**
+   * Formater le temps écoulé pour l'UI
+   */
+  formatTimeAgo(date: string | Date): string {
+    const now = new Date();
+    const notificationDate = typeof date === 'string' ? new Date(date) : date;
+    const diffMs = now.getTime() - notificationDate.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) {
+      return 'À l\'instant';
+    } else if (diffMins < 60) {
+      return `Il y a ${diffMins} min`;
+    } else if (diffHours < 24) {
+      return `Il y a ${diffHours}h`;
+    } else if (diffDays === 1) {
+      return 'Hier';
+    } else if (diffDays < 7) {
+      return `Il y a ${diffDays} jours`;
+    } else {
+      return notificationDate.toLocaleDateString('fr-FR');
     }
   }
 
   /**
-   * Marquer toutes les notifications d'un utilisateur comme lues
+   * Grouper les notifications par date
    */
-  async markAllAsRead(userId: string): Promise<void> {
-    try {
-      const q = query(
-        collection(db, this.NOTIFICATIONS_COLLECTION),
-        where('userId', '==', userId),
-        where('isRead', '==', false)
-      );
+  groupNotificationsByDate(notifications: Notification[]): Record<string, Notification[]> {
+    const groups: Record<string, Notification[]> = {
+      "Aujourd'hui": [],
+      'Hier': [],
+      'Cette semaine': [],
+      'Plus ancien': [],
+    };
 
-      const snapshot = await getDocs(q);
-      const batch = writeBatch(db);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 7);
 
-      snapshot.docs.forEach(docSnap => {
-        batch.update(docSnap.ref, {
-          isRead: true,
-          readAt: serverTimestamp()
-        });
-      });
-      await batch.commit();
-    } catch (error) {
-      console.error('Error marking all notifications as read:', error);
-      throw error;
-    }
-  }
+    notifications.forEach((notification) => {
+      const notifDate = new Date(notification.createdAt);
+      const notifDay = new Date(notifDate.getFullYear(), notifDate.getMonth(), notifDate.getDate());
 
-  /**
-   * Obtenir le nombre de notifications non lues
-   */
-  async getUnreadCount(userId: string): Promise<number> {
-    try {
-      const q = query(
-        collection(db, this.NOTIFICATIONS_COLLECTION),
-        where('userId', '==', userId),
-        where('isRead', '==', false)
-      );
-
-      const snapshot = await getDocs(q);
-      return snapshot.size;
-    } catch (error) {
-      console.error('Error getting unread count:', error);
-      return 0;
-    }
-  }
-
-  /**
-   * Envoyer une notification push (placeholder)
-   */
-  private async sendPushNotification(notification: Notification): Promise<void> {
-    try {
-      // TODO: Implémenter l'envoi de notifications push
-      // avec Firebase Cloud Messaging ou autre service
-      console.log(`Push notification sent to ${notification.userId}: ${notification.title}`);
-    } catch (error) {
-      console.error('Error sending push notification:', error);
-    }
-  }
-
-  /**
-   * Nettoyer les anciennes notifications expirées
-   */
-  async cleanupExpiredNotifications(): Promise<void> {
-    try {
-      const now = new Date();
-      const q = query(
-        collection(db, this.NOTIFICATIONS_COLLECTION),
-        where('expiresAt', '<=', Timestamp.fromDate(now))
-      );
-
-      const snapshot = await getDocs(q);
-      const batch = writeBatch(db);
-
-      snapshot.docs.forEach(docSnap => {
-        batch.delete(docSnap.ref);
-      });
-      await batch.commit();
-
-      console.log(`Cleaned up ${snapshot.size} expired notifications`);
-    } catch (error) {
-      console.error('Error cleaning up expired notifications:', error);
-    }
-  }
-
-  /**
-   * Envoyer des notifications groupées (bulk)
-   */
-  async sendBulkNotifications(requests: NotificationRequest[]): Promise<Notification[]> {
-    try {
-      const notifications: Notification[] = [];
-      const batch = writeBatch(db);
-
-
-      // Utilisation des batches pour de meilleures performances
-      for (const request of requests) {
-        const notification: Omit<Notification, 'id'> = {
-          ...request,
-          isRead: false,
-          createdAt: new Date(),
-          priority: request.priority || 'medium'
-        };
-
-        const docRef = doc(collection(db, this.NOTIFICATIONS_COLLECTION));
-        batch.set(docRef, {
-          ...notification,
-          createdAt: serverTimestamp()
-        });
-
-        notifications.push({
-          id: docRef.id,
-          ...notification
-        });
+      if (notifDay.getTime() === today.getTime()) {
+        groups["Aujourd'hui"].push(notification);
+      } else if (notifDay.getTime() === yesterday.getTime()) {
+        groups['Hier'].push(notification);
+      } else if (notifDay.getTime() >= weekAgo.getTime()) {
+        groups['Cette semaine'].push(notification);
+      } else {
+        groups['Plus ancien'].push(notification);
       }
+    });
 
-      await batch.commit();
-
-      // Envoyer les notifications push
-      for (const notification of notifications) {
-        await this.sendPushNotification(notification);
+    // Supprimer les groupes vides
+    Object.keys(groups).forEach((key) => {
+      if (groups[key].length === 0) {
+        delete groups[key];
       }
+    });
 
-      return notifications;
-    } catch (error) {
-      console.error('Error sending bulk notifications:', error);
-      throw error;
-    }
+    return groups;
+  }
+
+  /**
+   * Vérifier si une notification est récente (moins de 5 min)
+   */
+  isRecent(notification: Notification): boolean {
+    const now = new Date();
+    const notificationDate = new Date(notification.createdAt);
+    const diffMs = now.getTime() - notificationDate.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    return diffMins < 5;
   }
 }
 
 export const notificationService = new NotificationService();
+export type { Notification, NotificationType, CreateNotificationRequest, FilterNotificationRequest };

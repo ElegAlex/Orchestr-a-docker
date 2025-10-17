@@ -14,7 +14,7 @@ export const usePermissions = () => {
    */
   const hasPermission = (permission: Permission): boolean => {
     // Cas spécial : admin a TOUTES les permissions
-    if (user?.role === 'admin') {
+    if (user?.role === 'admin' || user?.role === 'ADMIN') {
       return true;
     }
     return permissionsService.hasPermission(user, permission);
@@ -25,7 +25,7 @@ export const usePermissions = () => {
    */
   const hasAllPermissions = (permissions: Permission[]): boolean => {
     // Cas spécial : admin a TOUTES les permissions
-    if (user?.role === 'admin') {
+    if (user?.role === 'admin' || user?.role === 'ADMIN') {
       return true;
     }
     return permissionsService.hasAllPermissions(user, permissions);
@@ -36,7 +36,7 @@ export const usePermissions = () => {
    */
   const hasAnyPermission = (permissions: Permission[]): boolean => {
     // Cas spécial : admin a TOUTES les permissions
-    if (user?.role === 'admin') {
+    if (user?.role === 'admin' || user?.role === 'ADMIN') {
       return true;
     }
     return permissionsService.hasAnyPermission(user, permissions);
@@ -75,12 +75,13 @@ export const usePermissions = () => {
    * CORRECTION : Vérifier directement le rôle pour admin et responsable
    */
   const hasAdminAccess = (): boolean => {
-    // Vérification directe des rôles autorisés
-    const roleCheck = user?.role === 'admin' || user?.role === 'responsable';
-    
+    // Vérification directe des rôles autorisés (support majuscules et minuscules)
+    const roleCheck = user?.role === 'admin' || user?.role === 'ADMIN' ||
+                      user?.role === 'responsable' || user?.role === 'RESPONSABLE';
+
     // Fallback: vérifier via le service traditionnel
     const traditionalCheck = permissionsService.hasAdminAccess(user);
-    
+
     // Si l'utilisateur a le rôle admin ou responsable, il a accès
     return roleCheck || traditionalCheck;
   };
@@ -97,19 +98,19 @@ export const usePermissions = () => {
    */
   const getUserPermissions = (): Permission[] => {
     if (!user) return [];
-    
-    // Cas spécial pour admin : toujours toutes les permissions
-    if (user.role === 'admin') {
+
+    // Cas spécial pour admin : toujours toutes les permissions (support majuscules/minuscules)
+    if (user.role === 'admin' || user.role === 'ADMIN') {
       return permissionsService.getPermissionsForRole('admin');
     }
-    
+
     // Si l'utilisateur a des permissions personnalisées valides, les utiliser
     if (user.permissions && user.permissions.length > 0 && !user.permissions.includes('all')) {
       return user.permissions as Permission[];
     }
-    
-    // Sinon, utiliser les permissions du rôle
-    return permissionsService.getPermissionsForRole(user.role);
+
+    // Sinon, utiliser les permissions du rôle (normaliser en minuscules)
+    return permissionsService.getPermissionsForRole(user.role.toLowerCase());
   };
 
   /**

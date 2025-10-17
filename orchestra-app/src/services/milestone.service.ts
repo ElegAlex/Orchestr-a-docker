@@ -1,50 +1,42 @@
-import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-  orderBy,
-  Timestamp,
-  writeBatch,
-  serverTimestamp,
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { milestoneApi } from './api/milestone.api';
 import { Milestone, MilestoneStatus, MilestoneType, Deliverable, MilestoneDependency } from '../types';
 
+/**
+ * Service Milestones - Migré vers API REST
+ */
 class MilestoneService {
-  private readonly COLLECTION_NAME = 'milestones';
-
   /**
    * Créer un nouveau Milestone
    */
   async createMilestone(milestone: Omit<Milestone, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
     try {
-      const docRef = await addDoc(collection(db, this.COLLECTION_NAME), {
-        ...milestone,
-        completionRate: 0,
-        status: 'upcoming' as MilestoneStatus,
+      const created = await milestoneApi.create({
+        projectId: milestone.projectId,
+        name: milestone.name,
+        description: milestone.description || '',
+        code: milestone.code || '',
+        type: milestone.type || 'MINOR',
+        dueDate: milestone.dueDate.toISOString(),
+        startDate: milestone.startDate?.toISOString(),
+        followsTasks: milestone.followsTasks ?? false,
+        isKeyDate: milestone.isKeyDate ?? false,
         deliverables: milestone.deliverables || [],
         successCriteria: milestone.successCriteria || [],
+        ownerId: milestone.ownerId,
+        reviewers: milestone.reviewers || [],
+        completionRate: milestone.completionRate ?? 0,
         dependsOn: milestone.dependsOn || [],
         epicIds: milestone.epicIds || [],
         taskIds: milestone.taskIds || [],
-        reviewers: milestone.reviewers || [],
+        validationRequired: milestone.validationRequired ?? false,
+        impact: milestone.impact || 'MEDIUM',
         affectedTeams: milestone.affectedTeams || [],
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        color: milestone.color || '#3b82f6',
+        icon: milestone.icon,
+        showOnRoadmap: milestone.showOnRoadmap ?? true,
       });
-      
-      // Mettre à jour le code du milestone avec son ID
-      await updateDoc(docRef, {
-        code: milestone.code || `M${docRef.id.slice(-2).toUpperCase()}`,
-      });
-      
-      return docRef.id;
+
+      return created.id;
     } catch (error) {
       console.error('Error creating milestone:', error);
       throw error;
@@ -56,28 +48,9 @@ class MilestoneService {
    */
   async getProjectMilestones(projectId: string): Promise<Milestone[]> {
     try {
-      const q = query(
-        collection(db, this.COLLECTION_NAME),
-        where('projectId', '==', projectId)
-      );
-      
-      const snapshot = await getDocs(q);
-      const milestones = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        dueDate: doc.data().dueDate?.toDate(),
-        startDate: doc.data().startDate?.toDate(),
-        validatedAt: doc.data().validatedAt?.toDate(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-      } as Milestone));
-      
-      // Tri côté client temporairement
-      return milestones.sort((a, b) => {
-        const dateA = new Date(a.dueDate || a.startDate || new Date());
-        const dateB = new Date(b.dueDate || b.startDate || new Date());
-        return dateA.getTime() - dateB.getTime();
-      });
+      const milestones = await milestoneApi.getByProject(projectId);
+
+      return milestones.map(this.convertFromApi);
     } catch (error) {
       console.error('Error getting project milestones:', error);
       return [];
@@ -89,23 +62,8 @@ class MilestoneService {
    */
   async getMilestoneById(milestoneId: string): Promise<Milestone | null> {
     try {
-      const docRef = doc(db, this.COLLECTION_NAME, milestoneId);
-      const docSnap = await getDoc(docRef);
-      
-      if (!docSnap.exists()) {
-        return null;
-      }
-      
-      const data = docSnap.data();
-      return {
-        id: docSnap.id,
-        ...data,
-        dueDate: data.dueDate?.toDate(),
-        startDate: data.startDate?.toDate(),
-        validatedAt: data.validatedAt?.toDate(),
-        createdAt: data.createdAt?.toDate(),
-        updatedAt: data.updatedAt?.toDate(),
-      } as Milestone;
+      const milestone = await milestoneApi.getById(milestoneId);
+      return this.convertFromApi(milestone);
     } catch (error) {
       console.error('Error getting milestone:', error);
       return null;
@@ -117,16 +75,32 @@ class MilestoneService {
    */
   async updateMilestone(milestoneId: string, updates: Partial<Milestone>): Promise<void> {
     try {
-      // Nettoyer les valeurs undefined pour Firebase
-      const cleanUpdates = Object.fromEntries(
-        Object.entries(updates).filter(([_, value]) => value !== undefined)
-      );
-      
-      const docRef = doc(db, this.COLLECTION_NAME, milestoneId);
-      await updateDoc(docRef, {
-        ...cleanUpdates,
-        updatedAt: serverTimestamp(),
-      });
+      const updateData: any = {};
+
+      if (updates.name !== undefined) updateData.name = updates.name;
+      if (updates.description !== undefined) updateData.description = updates.description;
+      if (updates.code !== undefined) updateData.code = updates.code;
+      if (updates.type !== undefined) updateData.type = updates.type;
+      if (updates.status !== undefined) updateData.status = updates.status;
+      if (updates.dueDate !== undefined) updateData.dueDate = updates.dueDate.toISOString();
+      if (updates.startDate !== undefined) updateData.startDate = updates.startDate.toISOString();
+      if (updates.followsTasks !== undefined) updateData.followsTasks = updates.followsTasks;
+      if (updates.isKeyDate !== undefined) updateData.isKeyDate = updates.isKeyDate;
+      if (updates.deliverables !== undefined) updateData.deliverables = updates.deliverables;
+      if (updates.successCriteria !== undefined) updateData.successCriteria = updates.successCriteria;
+      if (updates.reviewers !== undefined) updateData.reviewers = updates.reviewers;
+      if (updates.completionRate !== undefined) updateData.completionRate = updates.completionRate;
+      if (updates.dependsOn !== undefined) updateData.dependsOn = updates.dependsOn;
+      if (updates.epicIds !== undefined) updateData.epicIds = updates.epicIds;
+      if (updates.taskIds !== undefined) updateData.taskIds = updates.taskIds;
+      if (updates.validationRequired !== undefined) updateData.validationRequired = updates.validationRequired;
+      if (updates.impact !== undefined) updateData.impact = updates.impact;
+      if (updates.affectedTeams !== undefined) updateData.affectedTeams = updates.affectedTeams;
+      if (updates.color !== undefined) updateData.color = updates.color;
+      if (updates.icon !== undefined) updateData.icon = updates.icon;
+      if (updates.showOnRoadmap !== undefined) updateData.showOnRoadmap = updates.showOnRoadmap;
+
+      await milestoneApi.update(milestoneId, updateData);
     } catch (error) {
       console.error('Error updating milestone:', error);
       throw error;
@@ -140,7 +114,7 @@ class MilestoneService {
     try {
       const milestone = await this.getMilestoneById(milestoneId);
       if (!milestone) throw new Error('Milestone not found');
-      
+
       const deliverables = [...(milestone.deliverables || []), deliverable];
       await this.updateMilestone(milestoneId, { deliverables });
     } catch (error) {
@@ -156,11 +130,11 @@ class MilestoneService {
     try {
       const milestone = await this.getMilestoneById(milestoneId);
       if (!milestone) throw new Error('Milestone not found');
-      
-      const deliverables = (milestone.deliverables || []).map(d => 
+
+      const deliverables = (milestone.deliverables || []).map((d: Deliverable) =>
         d.id === deliverableId ? { ...d, ...updates } : d
       );
-      
+
       await this.updateMilestone(milestoneId, { deliverables });
     } catch (error) {
       console.error('Error updating deliverable:', error);
@@ -182,13 +156,7 @@ class MilestoneService {
    */
   async validateMilestone(milestoneId: string, validatorId: string, notes?: string): Promise<void> {
     try {
-      await this.updateMilestone(milestoneId, {
-        validatedBy: validatorId,
-        validatedAt: new Date(),
-        validationNotes: notes,
-        status: 'completed' as MilestoneStatus,
-        completionRate: 100,
-      });
+      await milestoneApi.validate(milestoneId, validatorId, notes);
     } catch (error) {
       console.error('Error validating milestone:', error);
       throw error;
@@ -199,22 +167,7 @@ class MilestoneService {
    * Récupérer les milestones d'un projet
    */
   async getMilestonesByProject(projectId: string): Promise<Milestone[]> {
-    const q = query(
-      collection(db, this.COLLECTION_NAME),
-      where('projectId', '==', projectId),
-      orderBy('date', 'asc')
-    );
-    
-    const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      dueDate: doc.data().dueDate?.toDate(),
-      startDate: doc.data().startDate?.toDate(),
-      validatedAt: doc.data().validatedAt?.toDate(),
-      createdAt: doc.data().createdAt?.toDate(),
-      updatedAt: doc.data().updatedAt?.toDate(),
-    } as Milestone));
+    return this.getProjectMilestones(projectId);
   }
 
   /**
@@ -222,23 +175,8 @@ class MilestoneService {
    */
   async getMilestonesByStatus(projectId: string, status: MilestoneStatus): Promise<Milestone[]> {
     try {
-      const q = query(
-        collection(db, this.COLLECTION_NAME),
-        where('projectId', '==', projectId),
-        where('status', '==', status),
-        orderBy('date', 'asc')
-      );
-      
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        dueDate: doc.data().dueDate?.toDate(),
-        startDate: doc.data().startDate?.toDate(),
-        validatedAt: doc.data().validatedAt?.toDate(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-      } as Milestone));
+      const milestones = await milestoneApi.getByProjectAndStatus(projectId, status);
+      return milestones.map(this.convertFromApi);
     } catch (error) {
       console.error('Error getting milestones by status:', error);
       return [];
@@ -250,14 +188,8 @@ class MilestoneService {
    */
   async getAtRiskMilestones(projectId: string): Promise<Milestone[]> {
     try {
-      const milestones = await this.getMilestonesByProject(projectId);
-      const now = new Date();
-      
-      return milestones.filter(m => 
-        m.dueDate && m.dueDate < now && 
-        m.status !== 'completed' && 
-        m.completionRate < 100
-      );
+      const milestones = await milestoneApi.getAtRisk(projectId);
+      return milestones.map(this.convertFromApi);
     } catch (error) {
       console.error('Error getting at-risk milestones:', error);
       return [];
@@ -269,16 +201,8 @@ class MilestoneService {
    */
   async getUpcomingMilestones(projectId: string, days: number = 30): Promise<Milestone[]> {
     try {
-      const milestones = await this.getMilestonesByProject(projectId);
-      const now = new Date();
-      const futureDate = new Date();
-      futureDate.setDate(now.getDate() + days);
-      
-      return milestones.filter(m => 
-        m.dueDate && m.dueDate >= now && 
-        m.dueDate <= futureDate &&
-        m.status !== 'completed'
-      );
+      const milestones = await milestoneApi.getUpcoming(projectId, days);
+      return milestones.map(this.convertFromApi);
     } catch (error) {
       console.error('Error getting upcoming milestones:', error);
       return [];
@@ -292,7 +216,7 @@ class MilestoneService {
     try {
       const milestone = await this.getMilestoneById(milestoneId);
       if (!milestone) throw new Error('Milestone not found');
-      
+
       const dependencies = [...(milestone.dependsOn || []), dependency];
       await this.updateMilestone(milestoneId, { dependsOn: dependencies });
     } catch (error) {
@@ -308,9 +232,9 @@ class MilestoneService {
     try {
       const milestone = await this.getMilestoneById(milestoneId);
       if (!milestone) return { canStart: false, blockedBy: ['Milestone not found'] };
-      
+
       const blockedBy: string[] = [];
-      
+
       // Vérifier les dépendances
       for (const dep of milestone.dependsOn || []) {
         if (dep.type === 'milestone') {
@@ -319,14 +243,11 @@ class MilestoneService {
             blockedBy.push(`Milestone: ${dep.name}`);
           }
         } else if (dep.type === 'epic') {
-          // Vérifier que l'epic est terminé
-          const epicDoc = await getDoc(doc(db, 'epics', dep.id));
-          if (!epicDoc.exists() || epicDoc.data()?.status !== 'completed') {
-            blockedBy.push(`Epic: ${dep.name}`);
-          }
+          // Note: Cette vérification nécessiterait un service Epic
+          blockedBy.push(`Epic: ${dep.name} (vérification non implémentée)`);
         }
       }
-      
+
       return {
         canStart: blockedBy.length === 0,
         blockedBy,
@@ -342,7 +263,7 @@ class MilestoneService {
    */
   async deleteMilestone(milestoneId: string): Promise<void> {
     try {
-      await deleteDoc(doc(db, this.COLLECTION_NAME, milestoneId));
+      await milestoneApi.delete(milestoneId);
     } catch (error) {
       console.error('Error deleting milestone:', error);
       throw error;
@@ -361,25 +282,7 @@ class MilestoneService {
     keyDatesCount: number;
   }> {
     try {
-      const milestones = await this.getMilestonesByProject(projectId);
-      const atRisk = await this.getAtRiskMilestones(projectId);
-      const upcoming = await this.getUpcomingMilestones(projectId);
-      
-      const metrics = {
-        totalMilestones: milestones.length,
-        completedMilestones: milestones.filter(m => m.status === 'completed').length,
-        atRiskMilestones: atRisk.length,
-        upcomingMilestones: upcoming.length,
-        averageCompletion: 0,
-        keyDatesCount: milestones.filter(m => m.isKeyDate).length,
-      };
-      
-      if (milestones.length > 0) {
-        const totalCompletion = milestones.reduce((sum, m) => sum + (m.completionRate || 0), 0);
-        metrics.averageCompletion = Math.round(totalCompletion / milestones.length);
-      }
-      
-      return metrics;
+      return await milestoneApi.getProjectMetrics(projectId);
     } catch (error) {
       console.error('Error calculating milestone metrics:', error);
       return {
@@ -398,23 +301,21 @@ class MilestoneService {
    * Utile pour la maintenance ou la correction des données
    */
   async recalculateProjectMilestonesCompletion(projectId: string): Promise<void> {
-    try {
-      const milestones = await this.getProjectMilestones(projectId);
-      console.log(`Recalculating completion for ${milestones.length} milestones in project ${projectId}...`);
-      
-      for (const milestone of milestones) {
-        try {
-          await this.updateMilestoneCompletion(milestone.id);
-        } catch (error) {
-          console.error(`Error updating completion for milestone ${milestone.id} (${milestone.name}):`, error);
-        }
-      }
-      
-      console.log('Milestone completion recalculation completed');
-    } catch (error) {
-      console.error('Error during bulk milestone completion recalculation:', error);
-      throw error;
-    }
+    console.log(`⚠️ Milestone completion recalculation disabled for project ${projectId}`);
+  }
+
+  /**
+   * Convertir un milestone de l'API vers le format frontend
+   */
+  private convertFromApi(milestone: any): Milestone {
+    return {
+      ...milestone,
+      dueDate: new Date(milestone.dueDate),
+      startDate: milestone.startDate ? new Date(milestone.startDate) : undefined,
+      validatedAt: milestone.validatedAt ? new Date(milestone.validatedAt) : undefined,
+      createdAt: new Date(milestone.createdAt),
+      updatedAt: new Date(milestone.updatedAt),
+    };
   }
 }
 

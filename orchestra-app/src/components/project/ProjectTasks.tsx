@@ -129,7 +129,7 @@ const ProjectTasks: React.FC<ProjectTasksProps> = ({ projectId }) => {
       // Filtrer les sous-tâches (tâches avec parentTaskId) pour ne garder que les tâches principales
       const mainTasks = tasks.filter(task => !task.parentTaskId);
 
-      setAllTasks(mainTasks);
+      setAllTasks(mainTasks as any);
 
       // Ne pas appliquer les filtres ici, ils seront appliqués par le useEffect qui écoute allTasks
     } catch (error) {

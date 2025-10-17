@@ -167,10 +167,11 @@ const ResourcePlanning: React.FC<ResourcePlanningProps> = ({ projectId }) => {
           estimatedHours,
           actualHours: task.status === 'DONE' ? estimatedHours * (efficiency / 100) : undefined,
           efficiency,
-        };
+          createdBy: task.createdBy || task.assigneeId || '',
+        } as ResourceTask;
       });
 
-      setTasks(resourceTasks);
+      setTasks(resourceTasks as any);
     } catch (error) {
       console.error('Erreur lors du chargement des tâches:', error);
     } finally {

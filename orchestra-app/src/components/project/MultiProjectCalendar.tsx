@@ -99,14 +99,15 @@ const MultiProjectCalendar: React.FC<MultiProjectCalendarProps> = ({ projects })
             const calendarTasks: CalendarTask[] = projectTasks.map(task => {
               const startDate = task.startDate ? parseISO(task.startDate.toString()) : new Date(task.createdAt);
               const endDate = task.dueDate ? parseISO(task.dueDate.toString()) : addDays(startDate, 1);
-              
+
               return {
                 ...task,
                 startDate,
                 endDate,
                 projectName: project.name,
                 projectColor: project.color || getProjectColor(project.id),
-              };
+                createdBy: task.createdBy || task.assigneeId || '',
+              } as CalendarTask;
             });
             allTasks.push(...calendarTasks);
           } catch (error) {

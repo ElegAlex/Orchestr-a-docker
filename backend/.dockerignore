@@ -1,0 +1,53 @@
+# Node
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Build
+dist
+build
+*.tsbuildinfo
+
+# Tests
+coverage
+*.spec.ts
+*.test.ts
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+!README.md
+
+# Logs
+logs
+*.log
+
+# Prisma
+prisma/migrations/*
+!prisma/migrations/.gitkeep
+prisma/*.db
+prisma/*.db-journal
+
+# Autres
+.prettierrc
+.eslintrc.js
+# tsconfig*.json  # COMMENTÉ - nécessaire pour le build Docker !

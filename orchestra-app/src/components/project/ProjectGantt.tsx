@@ -70,7 +70,7 @@ const ProjectGantt: React.FC<ProjectGanttProps> = ({ project, onRefresh }) => {
       ]);
 
       setGanttData({
-        tasks: tasks || [],
+        tasks: (tasks || []) as Task[],
         epics: epics || [],
         milestones: milestones || [],
         users: users.filter(u => u.isActive),

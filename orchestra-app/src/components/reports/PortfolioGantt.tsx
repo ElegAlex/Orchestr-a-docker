@@ -52,9 +52,9 @@ const PortfolioGantt: React.FC<PortfolioGanttProps> = ({ projects, milestones })
       const allTasks: Task[] = [];
       for (const project of projects) {
         const projectTasks = await taskService.getTasksByProject(project.id);
-        allTasks.push(...projectTasks);
+        allTasks.push(...(projectTasks as any));
       }
-      setTasks(allTasks);
+      setTasks(allTasks as any);
     };
 
     if (projects.length > 0) {

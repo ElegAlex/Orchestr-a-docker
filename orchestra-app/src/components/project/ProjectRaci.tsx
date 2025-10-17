@@ -67,7 +67,7 @@ const ProjectRaci: React.FC<ProjectRaciProps> = ({ project, onRefresh }) => {
 
       // Charger les tâches du projet
       const projectTasks = await taskService.getTasksByProject(project.id);
-      setTasks(projectTasks);
+      setTasks(projectTasks as any);
 
       // Charger tous les utilisateurs
       const allUsers = await userService.getAllUsers();

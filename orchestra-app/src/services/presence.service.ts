@@ -1,18 +1,25 @@
 /**
  * Service de gestion des présences
  * Calcule qui est présent sur site, en télétravail ou absent pour une date donnée
+ * Migré vers API REST
  */
 
-import { userService } from './user.service';
-import { leaveService } from './leave.service';
+import { presenceApi } from './api/presence.api';
 import { User } from '../types';
-import { db } from '../config/firebase';
-import { collection, getDocs } from 'firebase/firestore';
 
 export interface PresenceStatus {
   onSite: UserPresence[];
   telework: UserPresence[];
   absent: UserPresence[];
+  byDepartment?: DepartmentPresence[]; // Pour les responsables
+}
+
+export interface DepartmentPresence {
+  departmentName: string;
+  onSite: UserPresence[];
+  telework: UserPresence[];
+  absent: UserPresence[];
+  totalUsers: number;
 }
 
 export interface UserPresence {
@@ -25,129 +32,67 @@ export interface UserPresence {
 class PresenceService {
   /**
    * Récupère les présences pour une date donnée
+   * @param date Date à analyser
+   * @param currentUserDepartment Département de l'utilisateur courant (pour filtrage)
    */
-  async getPresencesForDate(date: Date): Promise<PresenceStatus> {
+  async getPresencesForDate(
+    date: Date,
+    currentUserDepartment?: string | null,
+  ): Promise<PresenceStatus> {
     try {
-      // 1. Récupérer tous les utilisateurs actifs (exclure admin et observateurs)
-      const allUsers = await userService.getAllUsers();
-      const activeUsers = allUsers.filter(u =>
-        u.isActive !== false &&
-        u.role !== 'admin' &&
-        u.role !== 'viewer'
-      );
+      const dateStr = date.toISOString().split('T')[0]; // Format: YYYY-MM-DD
 
-      // 2. Récupérer TOUS les congés (on filtrera après)
-      const leavesRef = collection(db, 'leaveRequests');
-      const leavesSnapshot = await getDocs(leavesRef);
+      // Si un département est spécifié, on doit passer l'ID du département
+      // NOTE: L'ancien code utilisait le NOM du département, mais l'API attend l'ID
+      // Pour l'instant, on passe undefined car on n'a pas l'ID
+      // TODO: Adapter pour passer le departmentId au lieu du nom
+      const departmentId = undefined; // currentUserDepartment serait le nom, pas l'ID
 
-      const leavesOnDate = leavesSnapshot.docs
-        .map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            userId: data.userId,
-            type: data.type,
-            status: data.status,
-            startDate: data.startDate?.toDate ? data.startDate.toDate() : new Date(data.startDate),
-            endDate: data.endDate?.toDate ? data.endDate.toDate() : new Date(data.endDate),
-            reason: data.reason,
-          };
-        })
-        .filter(leave => {
-          // Ne garder que les congés approuvés (normaliser majuscule/minuscule)
-          if (!leave.status || leave.status.toUpperCase() !== 'APPROVED') return false;
+      const result = await presenceApi.getPresencesForDate(dateStr, departmentId);
 
-          const leaveStart = new Date(leave.startDate);
-          const leaveEnd = new Date(leave.endDate);
-          const targetDate = new Date(date);
-          targetDate.setHours(0, 0, 0, 0);
-          leaveStart.setHours(0, 0, 0, 0);
-          leaveEnd.setHours(0, 0, 0, 0);
-
-          const isInRange = targetDate >= leaveStart && targetDate <= leaveEnd;
-          return isInRange;
-        });
-
-      // 3. Récupérer TOUS les overrides télétravail (on filtrera après)
-      const teleworkOverridesRef = collection(db, 'teleworkOverrides');
-      const teleworkSnapshot = await getDocs(teleworkOverridesRef);
-
-      const targetDate = new Date(date);
-      targetDate.setHours(0, 0, 0, 0);
-
-      const teleworkOnDate = teleworkSnapshot.docs
-        .map(doc => {
-          const data = doc.data();
-
-          let overrideDate: Date;
-          if (data.date?.toDate) {
-            overrideDate = data.date.toDate();
-          } else if (data.date?.seconds) {
-            // Format Timestamp Firebase
-            overrideDate = new Date(data.date.seconds * 1000);
-          } else {
-            overrideDate = new Date(data.date);
-          }
-
-          overrideDate.setHours(0, 0, 0, 0);
-
-          return {
-            userId: data.userId,
-            status: data.approvalStatus || data.status || 'PENDING',
-            mode: data.mode,
-            date: overrideDate,
-          };
-        })
-        .filter(override => {
-          const isSameDay = override.date.getTime() === targetDate.getTime();
-          const isRemote = override.mode === 'remote';
-          return isSameDay && isRemote;
-        });
-
-      // 4. Classifier les utilisateurs
-      const onSite: UserPresence[] = [];
-      const telework: UserPresence[] = [];
-      const absent: UserPresence[] = [];
-
-      for (const user of activeUsers) {
-        // Vérifier si absent (congé)
-        const userLeave = leavesOnDate.find(leave => leave.userId === user.id);
-        if (userLeave) {
-          absent.push({
-            user,
-            status: 'absent',
-            details: this.getLeaveTypeLabel(userLeave.type),
-            validationStatus: 'APPROVED'
-          });
-          continue;
-        }
-
-        // Vérifier si en télétravail
-        const userTelework = teleworkOnDate.find(res => res.userId === user.id);
-        if (userTelework) {
-          // Normaliser le status (approved/APPROVED, pending/PENDING, etc.)
-          const normalizedStatus = userTelework.status.toUpperCase();
-
-          telework.push({
-            user,
-            status: 'telework',
-            details: normalizedStatus === 'APPROVED' ? 'Télétravail validé' :
-                     normalizedStatus === 'PENDING' ? 'En attente de validation' :
-                     'Télétravail',
-            validationStatus: normalizedStatus as 'APPROVED' | 'PENDING' | 'REJECTED'
-          });
-          continue;
-        }
-
-        // Sinon, présent sur site
-        onSite.push({
-          user,
-          status: 'on_site',
-          details: 'Sur site'
-        });
-      }
-
-      return { onSite, telework, absent };
+      // Mapper le format API vers le format attendu par le frontend
+      return {
+        onSite: result.onSite.map((p: any) => ({
+          user: this.mapUserFromApi(p.user),
+          status: p.status,
+          details: p.details,
+          validationStatus: p.validationStatus,
+        })),
+        telework: result.telework.map((p: any) => ({
+          user: this.mapUserFromApi(p.user),
+          status: p.status,
+          details: p.details,
+          validationStatus: p.validationStatus,
+        })),
+        absent: result.absent.map((p: any) => ({
+          user: this.mapUserFromApi(p.user),
+          status: p.status,
+          details: p.details,
+          validationStatus: p.validationStatus,
+        })),
+        byDepartment: result.byDepartment?.map((dept: any) => ({
+          departmentName: dept.departmentName,
+          onSite: dept.onSite.map((p: any) => ({
+            user: this.mapUserFromApi(p.user),
+            status: p.status,
+            details: p.details,
+            validationStatus: p.validationStatus,
+          })),
+          telework: dept.telework.map((p: any) => ({
+            user: this.mapUserFromApi(p.user),
+            status: p.status,
+            details: p.details,
+            validationStatus: p.validationStatus,
+          })),
+          absent: dept.absent.map((p: any) => ({
+            user: this.mapUserFromApi(p.user),
+            status: p.status,
+            details: p.details,
+            validationStatus: p.validationStatus,
+          })),
+          totalUsers: dept.totalUsers,
+        })),
+      };
     } catch (error) {
       console.error('Erreur lors de la récupération des présences:', error);
       throw error;
@@ -155,27 +100,14 @@ class PresenceService {
   }
 
   /**
-   * Labels pour les types de congés
-   */
-  private getLeaveTypeLabel(type: string): string {
-    const labels: { [key: string]: string } = {
-      PAID_LEAVE: 'Congé payé',
-      RTT: 'RTT',
-      SICK_LEAVE: 'Congé maladie',
-      MATERNITY_LEAVE: 'Congé maternité',
-      PATERNITY_LEAVE: 'Congé paternité',
-      EXCEPTIONAL_LEAVE: 'Congé exceptionnel',
-      CONVENTIONAL_LEAVE: 'Congé conventionnel',
-      UNPAID_LEAVE: 'Congé sans solde',
-      TRAINING: 'Formation',
-    };
-    return labels[type] || type;
-  }
-
-  /**
    * Statistiques pour une date donnée
+   * @param date Date à analyser
+   * @param currentUserDepartment Département de l'utilisateur courant (pour filtrage)
    */
-  async getPresenceStats(date: Date): Promise<{
+  async getPresenceStats(
+    date: Date,
+    currentUserDepartment?: string | null,
+  ): Promise<{
     totalUsers: number;
     onSiteCount: number;
     teleworkCount: number;
@@ -183,16 +115,30 @@ class PresenceService {
     onSitePercentage: number;
     teleworkPercentage: number;
   }> {
-    const presences = await this.getPresencesForDate(date);
-    const totalUsers = presences.onSite.length + presences.telework.length + presences.absent.length;
+    try {
+      const dateStr = date.toISOString().split('T')[0];
+      const departmentId = undefined; // TODO: convertir nom → ID
 
+      return await presenceApi.getPresenceStats(dateStr, departmentId);
+    } catch (error) {
+      console.error('Erreur lors du calcul des stats de présence:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Mapper un utilisateur depuis l'API vers le format User du frontend
+   */
+  private mapUserFromApi(apiUser: any): User {
     return {
-      totalUsers,
-      onSiteCount: presences.onSite.length,
-      teleworkCount: presences.telework.length,
-      absentCount: presences.absent.length,
-      onSitePercentage: totalUsers > 0 ? Math.round((presences.onSite.length / totalUsers) * 100) : 0,
-      teleworkPercentage: totalUsers > 0 ? Math.round((presences.telework.length / totalUsers) * 100) : 0,
+      id: apiUser.id,
+      email: apiUser.email,
+      firstName: apiUser.firstName,
+      lastName: apiUser.lastName,
+      role: apiUser.role,
+      department: apiUser.department?.name,
+      departmentId: apiUser.department?.id,
+      isActive: true, // Valeur par défaut
     };
   }
 }

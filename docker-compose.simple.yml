@@ -1,0 +1,37 @@
+# ==========================================
+# ORCHESTR'A - APPLICATION COMPLÈTE EN DOCKER
+# ==========================================
+# Frontend React + Firebase (données cloud)
+#
+# Usage:
+#   docker-compose -f docker-compose.simple.yml up --build
+#   Puis ouvrir: http://localhost:3002
+
+version: '3.8'
+
+services:
+  # ==========================================
+  # Frontend React avec Firebase
+  # ==========================================
+  frontend:
+    build:
+      context: ./orchestra-app
+      dockerfile: Dockerfile.simple
+      args:
+        REACT_APP_FIREBASE_API_KEY: AIzaSyDM4x12OPV7YgzWSCYW-JOo8P0FjcegMr0
+        REACT_APP_FIREBASE_AUTH_DOMAIN: orchestr-a-3b48e.firebaseapp.com
+        REACT_APP_FIREBASE_PROJECT_ID: orchestr-a-3b48e
+        REACT_APP_FIREBASE_STORAGE_BUCKET: orchestr-a-3b48e.firebasestorage.app
+        REACT_APP_FIREBASE_MESSAGING_SENDER_ID: 727625651545
+        REACT_APP_FIREBASE_APP_ID: 1:727625651545:web:bcfec2aff94934c73f6848
+        REACT_APP_FIREBASE_MEASUREMENT_ID: G-ZE4L1M8C8G
+    container_name: orchestr-a-app
+    restart: unless-stopped
+    ports:
+      - "3002:80"
+    networks:
+      - orchestr-a-network
+
+networks:
+  orchestr-a-network:
+    driver: bridge

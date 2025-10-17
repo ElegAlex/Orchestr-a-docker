@@ -1,38 +1,21 @@
-import {
-  collection,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  getDocs,
-  doc,
-  query,
-  where,
-  orderBy,
-  serverTimestamp,
-  getDoc,
-  writeBatch
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { departmentApi } from './api/department.api';
+import { userService } from './user.service';
 import { Department, CreateDepartmentRequest, User } from '../types';
 
 export class DepartmentService {
-  private readonly collectionName = 'departments';
-
   /**
    * Crée un nouveau département
    */
   async createDepartment(departmentData: CreateDepartmentRequest): Promise<string> {
     try {
-      const docRef = await addDoc(collection(db, this.collectionName), {
+      const department = await departmentApi.create({
         ...departmentData,
         isActive: true,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
       });
-      return docRef.id;
-    } catch (error) {
+      return department.id;
+    } catch (error: any) {
       console.error('Error creating department:', error);
-      throw new Error('Erreur lors de la création du département');
+      throw new Error(error.response?.data?.message || 'Erreur lors de la création du département');
     }
   }
 
@@ -42,18 +25,15 @@ export class DepartmentService {
   async updateDepartment(departmentData: Partial<Department> & { id: string }): Promise<void> {
     try {
       const { id, ...updateData } = departmentData;
-      await updateDoc(doc(db, this.collectionName, id), {
-        ...updateData,
-        updatedAt: serverTimestamp()
-      });
-    } catch (error) {
+      await departmentApi.update(id, updateData);
+    } catch (error: any) {
       console.error('Error updating department:', error);
-      throw new Error('Erreur lors de la mise à jour du département');
+      throw new Error(error.response?.data?.message || 'Erreur lors de la mise à jour du département');
     }
   }
 
   /**
-   * Supprime un département (soft delete)
+   * Supprime un département (soft delete via deactivate)
    */
   async deleteDepartment(departmentId: string): Promise<void> {
     try {
@@ -65,11 +45,8 @@ export class DepartmentService {
         );
       }
 
-      await updateDoc(doc(db, this.collectionName, departmentId), {
-        isActive: false,
-        updatedAt: serverTimestamp()
-      });
-    } catch (error) {
+      await departmentApi.deactivate(departmentId);
+    } catch (error: any) {
       console.error('Error deleting department:', error);
       throw error;
     }
@@ -88,8 +65,8 @@ export class DepartmentService {
         );
       }
 
-      await deleteDoc(doc(db, this.collectionName, departmentId));
-    } catch (error) {
+      await departmentApi.delete(departmentId);
+    } catch (error: any) {
       console.error('Error permanently deleting department:', error);
       throw error;
     }
@@ -100,24 +77,12 @@ export class DepartmentService {
    */
   async getAllDepartments(): Promise<Department[]> {
     try {
-      const q = query(
-        collection(db, this.collectionName),
-        where('isActive', '==', true)
-      );
-      const querySnapshot = await getDocs(q);
-      
-      const departments = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate()
-      })) as Department[];
-
-      // Tri par nom en JavaScript
-      return departments.sort((a, b) => a.name.localeCompare(b.name));
-    } catch (error) {
+      const departments = await departmentApi.getAll(false);
+      // Déjà trié par nom côté backend
+      return departments;
+    } catch (error: any) {
       console.error('Error fetching departments:', error);
-      throw new Error('Erreur lors de la récupération des départements');
+      throw new Error(error.response?.data?.message || 'Erreur lors de la récupération des départements');
     }
   }
 
@@ -126,23 +91,14 @@ export class DepartmentService {
    */
   async getDepartmentById(departmentId: string): Promise<Department | null> {
     try {
-      const docRef = doc(db, this.collectionName, departmentId);
-      const docSnap = await getDoc(docRef);
-      
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        return {
-          id: docSnap.id,
-          ...data,
-          createdAt: data.createdAt?.toDate(),
-          updatedAt: data.updatedAt?.toDate()
-        } as Department;
+      const department = await departmentApi.getById(departmentId);
+      return department;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
       }
-      
-      return null;
-    } catch (error) {
       console.error('Error fetching department:', error);
-      throw new Error('Erreur lors de la récupération du département');
+      throw new Error(error.response?.data?.message || 'Erreur lors de la récupération du département');
     }
   }
 
@@ -151,29 +107,17 @@ export class DepartmentService {
    */
   async getUsersInDepartment(departmentId: string): Promise<User[]> {
     try {
-      const q = query(
-        collection(db, 'users'),
-        where('department', '==', departmentId),
-        where('isActive', '==', true)
-      );
-      const querySnapshot = await getDocs(q);
-      
-      const users = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-        lastLoginAt: doc.data().lastLoginAt?.toDate()
-      })) as User[];
-      
+      const users = await departmentApi.getUsersByDepartment(departmentId);
+
       // EXCLURE l'admin technique des ressources RH
-      return users.filter(user => 
-        user.email !== 'elegalex1980@gmail.com' && 
+      return users.filter((user: User) =>
+        user.email !== 'elegalex1980@gmail.com' &&
+        user.role !== 'ADMIN' &&
         user.role !== 'admin'
       );
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching users in department:', error);
-      throw new Error('Erreur lors de la récupération des utilisateurs du département');
+      throw new Error(error.response?.data?.message || 'Erreur lors de la récupération des utilisateurs du département');
     }
   }
 
@@ -182,14 +126,13 @@ export class DepartmentService {
    */
   async assignUserToDepartment(userId: string, departmentId: string | null): Promise<void> {
     try {
-      const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, {
-        department: departmentId,
-        updatedAt: serverTimestamp()
+      // Utiliser le service utilisateur pour mettre à jour le département
+      await userService.updateUser(userId, {
+        departmentId: departmentId || undefined,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error assigning user to department:', error);
-      throw new Error('Erreur lors de l\'assignation de l\'utilisateur au département');
+      throw new Error(error.response?.data?.message || 'Erreur lors de l\'assignation de l\'utilisateur au département');
     }
   }
 
@@ -211,34 +154,36 @@ export class DepartmentService {
     try {
       // Récupérer tous les départements actifs
       const departments = await this.getAllDepartments();
-      
+
+      // Vérifier que departments est un tableau
+      if (!Array.isArray(departments)) {
+        console.warn('getAllDepartments returned non-array:', departments);
+        throw new Error('Impossible de récupérer la liste des départements');
+      }
+
       // Récupérer tous les utilisateurs actifs
-      const usersQuery = query(
-        collection(db, 'users'),
-        where('isActive', '==', true)
-      );
-      const usersSnapshot = await getDocs(usersQuery);
-      const allUsers = usersSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-        lastLoginAt: doc.data().lastLoginAt?.toDate()
-      })) as User[];
+      const allUsers = await userService.getAllUsers();
+
+      // Vérifier que allUsers est un tableau
+      if (!Array.isArray(allUsers)) {
+        console.warn('getAllUsers returned non-array:', allUsers);
+        throw new Error('Impossible de récupérer la liste des utilisateurs');
+      }
 
       // EXCLURE l'admin technique des ressources RH
-      const filteredUsers = allUsers.filter(user => 
-        user.email !== 'elegalex1980@gmail.com' && 
+      const filteredUsers = allUsers.filter((user: User) =>
+        user.email !== 'elegalex1980@gmail.com' &&
+        user.role !== 'ADMIN' &&
         user.role !== 'admin'
       );
 
-      // Compter les utilisateurs assignés et non assignés (sans l'admin technique)
-      const usersWithDepartment = filteredUsers.filter(user => user.department);
-      const unassignedUsers = filteredUsers.filter(user => !user.department);
+      // Compter les utilisateurs assignés et non assignés
+      const usersWithDepartment = filteredUsers.filter((user: User) => user.departmentId);
+      const unassignedUsers = filteredUsers.filter((user: User) => !user.departmentId);
 
-      // Créer le breakdown par département (avec utilisateurs filtrés)
+      // Créer le breakdown par département
       const departmentBreakdown = departments.map(dept => {
-        const deptUsers = filteredUsers.filter(user => user.department === dept.id);
+        const deptUsers = filteredUsers.filter((user: User) => user.departmentId === dept.id);
         return {
           departmentId: dept.id,
           departmentName: dept.name,
@@ -254,9 +199,9 @@ export class DepartmentService {
         unassignedUsers: unassignedUsers.length,
         departmentBreakdown
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching department stats:', error);
-      throw new Error('Erreur lors de la récupération des statistiques des départements');
+      throw new Error(error.response?.data?.message || 'Erreur lors de la récupération des statistiques des départements');
     }
   }
 
@@ -264,30 +209,27 @@ export class DepartmentService {
    * Transfère tous les utilisateurs d'un département vers un autre
    */
   async transferUsersBetweenDepartments(
-    fromDepartmentId: string, 
+    fromDepartmentId: string,
     toDepartmentId: string | null
   ): Promise<void> {
     try {
       const usersToTransfer = await this.getUsersInDepartment(fromDepartmentId);
-      
+
       if (usersToTransfer.length === 0) {
         return;
       }
 
-      const batch = writeBatch(db);
-      
-      usersToTransfer.forEach(user => {
-        const userRef = doc(db, 'users', user.id);
-        batch.update(userRef, {
-          department: toDepartmentId,
-          updatedAt: serverTimestamp()
-        });
-      });
-
-      await batch.commit();
-    } catch (error) {
+      // Mettre à jour chaque utilisateur
+      await Promise.all(
+        usersToTransfer.map((user: User) =>
+          userService.updateUser(user.id, {
+            departmentId: toDepartmentId || undefined,
+          })
+        )
+      );
+    } catch (error: any) {
       console.error('Error transferring users between departments:', error);
-      throw new Error('Erreur lors du transfert des utilisateurs entre départements');
+      throw new Error(error.response?.data?.message || 'Erreur lors du transfert des utilisateurs entre départements');
     }
   }
 
@@ -296,48 +238,21 @@ export class DepartmentService {
    */
   async getUnassignedUsers(): Promise<User[]> {
     try {
-      const q = query(
-        collection(db, 'users'),
-        where('isActive', '==', true),
-        where('department', '==', null)
-      );
-      const querySnapshot = await getDocs(q);
-      
-      const usersWithoutDept = querySnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-        lastLoginAt: doc.data().lastLoginAt?.toDate()
-      })) as User[];
+      const allUsers = await userService.getAllUsers();
 
-      // Également récupérer les utilisateurs avec department undefined ou vide
-      const qUndefined = query(
-        collection(db, 'users'),
-        where('isActive', '==', true)
-      );
-      const undefinedSnapshot = await getDocs(qUndefined);
-      
-      const allUsers = undefinedSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        createdAt: doc.data().createdAt?.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-        lastLoginAt: doc.data().lastLoginAt?.toDate()
-      })) as User[];
+      const unassignedUsers = allUsers.filter((user: User) => !user.departmentId);
 
-      const unassignedUsers = allUsers.filter(user => !user.department);
-      
       // EXCLURE l'admin technique des ressources RH
-      const filteredUsers = unassignedUsers.filter(user => 
-        user.email !== 'elegalex1980@gmail.com' && 
+      const filteredUsers = unassignedUsers.filter((user: User) =>
+        user.email !== 'elegalex1980@gmail.com' &&
+        user.role !== 'ADMIN' &&
         user.role !== 'admin'
       );
-      
+
       return filteredUsers;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching unassigned users:', error);
-      throw new Error('Erreur lors de la récupération des utilisateurs non assignés');
+      throw new Error(error.response?.data?.message || 'Erreur lors de la récupération des utilisateurs non assignés');
     }
   }
 }

@@ -1,40 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store';
-import { CircularProgress, Box } from '@mui/material';
-import { auth } from '../config/firebase';
 
 interface PrivateRouteProps {
   children: React.ReactElement;
 }
 
+/**
+ * PrivateRoute - Protège les routes nécessitant une authentification
+ *
+ * Redirige vers /login si l'utilisateur n'est pas authentifié
+ * L'initialisation de l'auth est gérée par AuthProvider
+ */
 export const PrivateRoute: React.FC<PrivateRouteProps> = ({ children }) => {
-  const isAuthenticated = useSelector((state: RootState) => state.auth.isAuthenticated);
+  const { isAuthenticated, isLoading } = useSelector((state: RootState) => state.auth);
   const location = useLocation();
-  const [checkingAuth, setCheckingAuth] = useState(true);
 
-  useEffect(() => {
-    // Attendre que Firebase vérifie l'état d'authentification
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      // Donner un petit délai pour que Redux se synchronise
-      setTimeout(() => {
-        setCheckingAuth(false);
-      }, 100);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  // Pendant la vérification, afficher un loader
-  if (checkingAuth) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
-        <CircularProgress />
-      </Box>
-    );
+  // Si l'authentification n'est pas encore vérifiée, on ne redirige pas
+  // (AuthProvider gère le loading initial)
+  if (isLoading) {
+    return null;
   }
 
+  // Rediriger vers /login si non authentifié
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }

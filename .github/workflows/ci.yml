@@ -1,0 +1,294 @@
+name: CI/CD Pipeline - Orchestr'A Backend
+
+on:
+  push:
+    branches: [main, master, develop]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'backend/**'
+
+jobs:
+  # ==========================================
+  # Job 1: Lint et Type Check
+  # ==========================================
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: 📦 Install dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: 🔧 Generate Prisma Client
+        working-directory: ./backend
+        run: npx prisma generate
+
+      - name: 🔍 Run ESLint
+        working-directory: ./backend
+        run: npm run lint:check
+
+      - name: 📝 TypeScript Type Check
+        working-directory: ./backend
+        run: npx tsc --noEmit
+
+      - name: ✅ Validate Prisma Schema
+        working-directory: ./backend
+        run: npx prisma validate
+
+  # ==========================================
+  # Job 2: Tests Unitaires
+  # ==========================================
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: 📦 Install dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: 🔧 Generate Prisma Client
+        working-directory: ./backend
+        run: npx prisma generate
+
+      - name: 🧪 Run unit tests
+        working-directory: ./backend
+        run: npm test -- --coverage --maxWorkers=2
+
+      - name: 📊 Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: ./backend/coverage/lcov.info
+          flags: backend-unit
+          name: backend-unit-coverage
+        continue-on-error: true
+
+  # ==========================================
+  # Job 3: Tests E2E (avec PostgreSQL + Redis)
+  # ==========================================
+  e2e-tests:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: lint
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: orchestr_a
+          POSTGRES_PASSWORD: orchestr_a_test_2025
+          POSTGRES_DB: orchestr_a_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://orchestr_a:orchestr_a_test_2025@localhost:5432/orchestr_a_test
+      JWT_SECRET: test-jwt-secret-ci-2025
+      JWT_REFRESH_SECRET: test-jwt-refresh-secret-ci-2025
+      REDIS_HOST: localhost
+      REDIS_PORT: 6379
+      NODE_ENV: test
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: 📦 Install dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: 🔧 Generate Prisma Client
+        working-directory: ./backend
+        run: npx prisma generate
+
+      - name: 🗄️ Run database migrations
+        working-directory: ./backend
+        run: npx prisma migrate deploy
+
+      - name: 🧪 Run E2E tests
+        working-directory: ./backend
+        run: npm run test:e2e -- --maxWorkers=1
+
+      - name: 📊 Upload E2E test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: backend/test-results/
+        continue-on-error: true
+
+  # ==========================================
+  # Job 4: Build Production
+  # ==========================================
+  build:
+    name: Build Production
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests, e2e-tests]
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend/package-lock.json
+
+      - name: 📦 Install dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: 🔧 Generate Prisma Client
+        working-directory: ./backend
+        run: npx prisma generate
+
+      - name: 🏗️ Build application
+        working-directory: ./backend
+        run: npm run build
+
+      - name: ✅ Verify build output
+        working-directory: ./backend
+        run: |
+          if [ ! -d "dist" ]; then
+            echo "❌ Build failed: dist directory not found"
+            exit 1
+          fi
+          echo "✅ Build successful - dist directory created"
+          ls -lah dist/
+
+  # ==========================================
+  # Job 5: Build Docker Image (optionnel)
+  # ==========================================
+  docker-build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🔐 Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏗️ Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/orchestr-a-backend:latest
+            ghcr.io/${{ github.repository }}/orchestr-a-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ==========================================
+  # Job 6: Security Audit
+  # ==========================================
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    needs: [lint]
+
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 🔒 Run npm audit
+        working-directory: ./backend
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+
+      - name: 📦 Check for outdated dependencies
+        working-directory: ./backend
+        run: npm outdated || true
+
+  # ==========================================
+  # Job 7: Notification Succès
+  # ==========================================
+  notify:
+    name: Pipeline Summary
+    runs-on: ubuntu-latest
+    needs: [lint, unit-tests, e2e-tests, build]
+    if: always()
+
+    steps:
+      - name: 📊 Pipeline Status
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🎯 CI/CD Pipeline - Orchestr'A Backend"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📝 Commit: ${{ github.sha }}"
+          echo "🌿 Branch: ${{ github.ref }}"
+          echo "👤 Author: ${{ github.actor }}"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ All jobs completed successfully!"
+          else
+            echo "⚠️ Some jobs may have failed. Check logs above."
+          fi
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

@@ -129,21 +129,21 @@ export const Settings: React.FC = () => {
     try {
       setLoading(true);
       const [
-        servicesData, 
-        departmentsData, 
-        usersData, 
-        unassignedData, 
-        unassignedDeptData, 
+        servicesData,
+        departmentsData,
+        usersData,
+        unassignedData,
+        unassignedDeptData,
         statsData,
         deptStatsData
       ] = await Promise.all([
-        serviceService.getAllServices(),
-        departmentService.getAllDepartments(),
-        userService.getAllUsersForResources(), // EXCLURE L'ADMIN TECHNIQUE
-        userServiceAssignmentService.getUnassignedUsers(),
-        departmentService.getUnassignedUsers(),
-        userServiceAssignmentService.getServiceAssignmentStats(),
-        departmentService.getDepartmentStats()
+        serviceService.getAllServices().catch(err => { console.warn('Services not available (Firebase):', err); return []; }),
+        departmentService.getAllDepartments().catch(err => { console.error('Error loading departments:', err); return []; }),
+        userService.getAllUsersForResources().catch(err => { console.warn('Users not available:', err); return []; }),
+        userServiceAssignmentService.getUnassignedUsers().catch(err => { console.warn('Unassigned users not available (Firebase):', err); return []; }),
+        departmentService.getUnassignedUsers().catch(err => { console.warn('Unassigned dept users not available:', err); return []; }),
+        userServiceAssignmentService.getServiceAssignmentStats().catch(err => { console.warn('Service stats not available (Firebase):', err); return null; }),
+        departmentService.getDepartmentStats().catch(err => { console.error('Error loading dept stats:', err); return null; })
       ]);
       setServices(servicesData);
       setDepartments(departmentsData);

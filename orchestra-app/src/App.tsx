@@ -1,20 +1,18 @@
-import React, { useEffect, Suspense } from 'react';
+import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Provider } from 'react-redux';
 import { ThemeProvider, createTheme, CssBaseline, CircularProgress, Box } from '@mui/material';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from './config/firebase';
 import { store } from './store';
-import { setUser } from './store/slices/authSlice';
-import { authService } from './services/auth.service';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { NotificationProvider } from './components/NotificationProvider';
+import { AuthProvider } from './components/auth/AuthProvider';
 import { LoginForm } from './components/auth/LoginForm';
 import { MainLayout } from './components/layout/MainLayout';
 import { PrivateRoute } from './components/PrivateRoute';
 
 // Lazy-loaded components for better performance
 const DashboardHub = React.lazy(() => import('./pages/DashboardHub'));
+const SimpleDashboard = React.lazy(() => import('./pages/SimpleDashboard').then(module => ({ default: module.SimpleDashboard })));
 const Projects = React.lazy(() => import('./pages/Projects').then(module => ({ default: module.Projects })));
 const ProjectCreate = React.lazy(() => import('./pages/ProjectCreate').then(module => ({ default: module.ProjectCreate })));
 const ProjectDetail = React.lazy(() => import('./pages/ProjectDetail'));
@@ -27,6 +25,7 @@ const HRAdmin = React.lazy(() => import('./pages/HRAdmin'));
 const Settings = React.lazy(() => import('./pages/Settings').then(module => ({ default: module.Settings })));
 const Profile = React.lazy(() => import('./pages/Profile'));
 const TeamSupervision = React.lazy(() => import('./pages/TeamSupervision'));
+const Tutorial = React.lazy(() => import('./pages/Tutorial'));
 
 // Loading fallback component
 const LoadingFallback = () => (
@@ -72,40 +71,6 @@ const theme = createTheme({
 });
 
 function AppContent() {
-  const [authInitialized, setAuthInitialized] = React.useState(false);
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        try {
-          const user = await authService.getUserProfile(firebaseUser.uid);
-          if (!user) {
-            // Ne PAS créer automatiquement un profil !
-            // L'utilisateur doit avoir un profil existant créé par un admin
-            console.warn('Utilisateur Firebase sans profil Firestore:', firebaseUser.email);
-            await authService.signOut(); // Déconnecter immédiatement
-            store.dispatch(setUser(null));
-            setAuthInitialized(true);
-            return;
-          }
-          store.dispatch(setUser(user));
-        } catch (error) {
-          console.error('Error loading user profile:', error);
-          store.dispatch(setUser(null));
-        }
-      } else {
-        store.dispatch(setUser(null));
-      }
-      setAuthInitialized(true);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  if (!authInitialized) {
-    return <div>Loading...</div>;
-  }
-
   return (
     <Router>
       <Routes>
@@ -118,8 +83,13 @@ function AppContent() {
             </PrivateRoute>
           }
         >
-          <Route index element={<Navigate to="/dashboard-hub" replace />} />
-          <Route path="dashboard" element={<Navigate to="/dashboard-hub" replace />} />
+          <Route index element={<Navigate to="/simple-dashboard" replace />} />
+          <Route path="dashboard" element={<Navigate to="/simple-dashboard" replace />} />
+          <Route path="simple-dashboard" element={
+            <Suspense fallback={<LoadingFallback />}>
+              <SimpleDashboard />
+            </Suspense>
+          } />
           <Route path="dashboard-hub" element={
             <Suspense fallback={<LoadingFallback />}>
               <DashboardHub />
@@ -183,6 +153,11 @@ function AppContent() {
               <TeamSupervision />
             </Suspense>
           } />
+          <Route path="tutorial" element={
+            <Suspense fallback={<LoadingFallback />}>
+              <Tutorial />
+            </Suspense>
+          } />
         </Route>
       </Routes>
     </Router>
@@ -195,9 +170,11 @@ function App() {
       <Provider store={store}>
         <ThemeProvider theme={theme}>
           <CssBaseline />
-          <NotificationProvider>
-            <AppContent />
-          </NotificationProvider>
+          <AuthProvider>
+            <NotificationProvider>
+              <AppContent />
+            </NotificationProvider>
+          </AuthProvider>
         </ThemeProvider>
       </Provider>
     </ErrorBoundary>

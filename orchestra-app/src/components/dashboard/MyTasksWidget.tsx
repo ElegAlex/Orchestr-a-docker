@@ -21,6 +21,7 @@ import {
   Schedule as ScheduleIcon,
   Assignment as AssignmentIcon,
   PlaylistAddCheck as SimpleTaskIcon,
+  Add as AddIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { TasksByUrgency } from '../../services/dashboard-hub-v2.service';
@@ -34,6 +35,7 @@ interface MyTasksWidgetProps {
   mySimpleTasks?: SimpleTask[];
   loading?: boolean;
   onTaskUpdate?: () => void;
+  onNewSimpleTask?: () => void;
 }
 
 const TASKS_PER_PAGE = 5;
@@ -48,6 +50,7 @@ export const MyTasksWidget: React.FC<MyTasksWidgetProps> = ({
   mySimpleTasks = [],
   loading = false,
   onTaskUpdate,
+  onNewSimpleTask,
 }) => {
   const navigate = useNavigate();
 
@@ -200,7 +203,8 @@ export const MyTasksWidget: React.FC<MyTasksWidgetProps> = ({
     icon: React.ReactElement;
     state: CategoryState;
     setState: React.Dispatch<React.SetStateAction<CategoryState>>;
-  }> = ({ title, tasks, color, icon, state, setState }) => {
+    onCreateTask?: () => void;
+  }> = ({ title, tasks, color, icon, state, setState, onCreateTask }) => {
     const { tasks: paginatedTasks, totalPages, hasMore } = getPaginatedSimpleTasks(tasks, state.currentPage);
 
     if (tasks.length === 0) return null;
@@ -217,14 +221,21 @@ export const MyTasksWidget: React.FC<MyTasksWidgetProps> = ({
             px: 1.5,
             bgcolor: `${color}.50`,
             borderRadius: 1,
-            cursor: 'pointer',
-            '&:hover': {
-              bgcolor: `${color}.100`,
-            },
           }}
-          onClick={() => setState({ ...state, expanded: !state.expanded })}
         >
-          <Stack direction="row" alignItems="center" spacing={1}>
+          <Stack
+            direction="row"
+            alignItems="center"
+            spacing={1}
+            sx={{
+              flex: 1,
+              cursor: 'pointer',
+              '&:hover': {
+                opacity: 0.8,
+              },
+            }}
+            onClick={() => setState({ ...state, expanded: !state.expanded })}
+          >
             {icon}
             <Typography variant="subtitle2" fontWeight="600">
               {title}
@@ -236,9 +247,33 @@ export const MyTasksWidget: React.FC<MyTasksWidgetProps> = ({
               sx={{ height: 20, fontSize: '0.7rem' }}
             />
           </Stack>
-          <IconButton size="small">
-            {state.expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-          </IconButton>
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            {onCreateTask && (
+              <IconButton
+                size="small"
+                color={color}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCreateTask();
+                }}
+                sx={{
+                  bgcolor: `${color}.main`,
+                  color: 'white',
+                  '&:hover': {
+                    bgcolor: `${color}.dark`,
+                  },
+                }}
+              >
+                <AddIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            )}
+            <IconButton
+              size="small"
+              onClick={() => setState({ ...state, expanded: !state.expanded })}
+            >
+              {state.expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+            </IconButton>
+          </Stack>
         </Stack>
 
         {/* Liste des tâches simples */}
@@ -410,6 +445,7 @@ export const MyTasksWidget: React.FC<MyTasksWidgetProps> = ({
               icon={<SimpleTaskIcon sx={{ fontSize: 18, color: 'primary.main' }} />}
               state={simpleTasksState}
               setState={setSimpleTasksState}
+              onCreateTask={onNewSimpleTask}
             />
           </Box>
         )}

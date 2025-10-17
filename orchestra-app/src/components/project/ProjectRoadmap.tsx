@@ -114,11 +114,11 @@ const ProjectRoadmap: React.FC<ProjectRoadmapProps> = ({
       // Associer les tâches aux jalons et calculer les statuts
       const milestonesWithTasksData: MilestoneWithTasks[] = milestonesData.map(milestone => {
         const milestoneTasks = tasksData.filter(task => task.milestoneId === milestone.id);
-        const computedStatus = calculateMilestoneStatus(milestoneTasks);
+        const computedStatus = calculateMilestoneStatus(milestoneTasks as any);
 
         return {
           milestone,
-          tasks: milestoneTasks,
+          tasks: milestoneTasks as any,
           computedStatus,
           isExpanded: true, // Par défaut OUVERT pour voir les tâches
         };

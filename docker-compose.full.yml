@@ -1,0 +1,165 @@
+# ==========================================
+# ORCHESTR'A - ENVIRONNEMENT COMPLET LOCAL
+# ==========================================
+# Lance TOUT : PostgreSQL + Backend + Frontend
+#
+# Usage:
+#   docker-compose -f docker-compose.full.yml up --build
+#   Puis ouvrir: http://localhost:3001
+
+services:
+  # ==========================================
+  # PostgreSQL - Base de données
+  # ==========================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: orchestr-a-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: orchestra_dev
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: devpassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d orchestra_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - orchestr-a-network
+
+  # ==========================================
+  # Redis - Cache & Sessions
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: orchestr-a-redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379"  # Port externe 6380 pour éviter conflit avec Redis système
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - orchestr-a-network
+
+  # ==========================================
+  # MinIO - Stockage de fichiers (S3-compatible)
+  # ==========================================
+  minio:
+    image: minio/minio:latest
+    container_name: orchestr-a-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: devuser
+      MINIO_ROOT_PASSWORD: devpassword
+    ports:
+      - "9000:9000"  # API S3
+      - "9001:9001"  # Console Web
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - orchestr-a-network
+
+  # ==========================================
+  # Backend NestJS
+  # ==========================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: orchestr-a-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://dev:devpassword@postgres:5432/orchestra_dev
+      JWT_SECRET: dev-secret-key-change-in-production-please-use-strong-secret
+      JWT_EXPIRES_IN: 24h
+      NODE_ENV: production
+      PORT: 4000
+      CORS_ORIGIN: http://localhost:3001
+      # Redis Configuration
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # MinIO Configuration
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: false
+      MINIO_ACCESS_KEY: devuser
+      MINIO_SECRET_KEY: devpassword
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:4000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - orchestr-a-network
+    command: >
+      sh -c "
+        npx prisma migrate deploy &&
+        node dist/main
+      "
+
+  # ==========================================
+  # Frontend React
+  # ==========================================
+  frontend:
+    build:
+      context: ./orchestra-app
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: http://localhost:4000/api
+        REACT_APP_FIREBASE_API_KEY: AIzaSyDM4x12OPV7YgzWSCYW-JOo8P0FjcegMr0
+        REACT_APP_FIREBASE_AUTH_DOMAIN: orchestr-a-3b48e.firebaseapp.com
+        REACT_APP_FIREBASE_PROJECT_ID: orchestr-a-3b48e
+        REACT_APP_FIREBASE_STORAGE_BUCKET: orchestr-a-3b48e.appspot.com
+        REACT_APP_FIREBASE_MESSAGING_SENDER_ID: 727625651545
+        REACT_APP_FIREBASE_APP_ID: 1:727625651545:web:votre_app_id
+    container_name: orchestr-a-frontend
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    depends_on:
+      - backend
+    networks:
+      - orchestr-a-network
+
+# ==========================================
+# Volumes persistants
+# ==========================================
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  minio-data:
+    driver: local
+
+# ==========================================
+# Réseau
+# ==========================================
+networks:
+  orchestr-a-network:
+    driver: bridge

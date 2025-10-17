@@ -262,6 +262,7 @@ export const DashboardHub: React.FC = () => {
             mySimpleTasks={dashboardData.mySimpleTasks}
             loading={loading}
             onTaskUpdate={handleTaskUpdate}
+            onNewSimpleTask={() => setSimpleTaskModalOpen(true)}
           />
         </Box>
       </Box>

@@ -55,7 +55,7 @@ const MilestoneView: React.FC<MilestoneViewProps> = ({
       });
 
       setMilestones(sortedMilestones);
-      setTasks(tasksData);
+      setTasks(tasksData as Task[]);
     } catch (err) {
       console.error('Erreur lors du chargement des jalons:', err);
       setError('Impossible de charger les jalons du projet');

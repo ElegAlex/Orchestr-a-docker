@@ -1,76 +1,39 @@
-import {
-  collection,
-  doc,
-  addDoc,
-  getDoc,
-  getDocs,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-  orderBy,
-  Timestamp,
-  writeBatch,
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { simpleTaskApi } from './api/simpleTask.api';
 import { SimpleTask, CreateSimpleTaskInput } from '../types/simpleTask';
 
-const COLLECTION = 'simpleTasks';
-
 /**
- * Transformer Firestore → SimpleTask
- * FORMAT NOUVEAU UNIQUEMENT
- */
-function fromFirestore(docSnap: any): SimpleTask {
-  const data = docSnap.data();
-  return {
-    id: docSnap.id,
-    title: data.title,
-    description: data.description || '',
-    date: data.date.toDate(),
-    timeSlot: {
-      start: data.timeSlot.start,
-      end: data.timeSlot.end,
-    },
-    assignedTo: data.assignedTo,
-    priority: data.priority,
-    status: data.status,
-    createdBy: data.createdBy,
-    createdAt: data.createdAt.toDate(),
-    updatedAt: data.updatedAt.toDate(),
-  };
-}
-
-/**
- * Service Simple Tasks
+ * Service Simple Tasks - Migré vers API REST
  */
 class SimpleTaskService {
   /**
    * Créer UNE tâche simple
    */
   async create(input: CreateSimpleTaskInput, assignedTo: string, createdBy: string): Promise<SimpleTask> {
-    const now = Timestamp.now();
+    try {
+      const task = await simpleTaskApi.create({
+        title: input.title,
+        description: input.description || '',
+        date: input.date.toISOString(),
+        timeSlot: {
+          start: input.timeSlot.start,
+          end: input.timeSlot.end,
+        },
+        priority: input.priority,
+        assignedTo,
+        createdBy,
+      });
 
-    const taskData = {
-      title: input.title,
-      description: input.description || '',
-      date: Timestamp.fromDate(input.date),
-      timeSlot: {
-        start: input.timeSlot.start,
-        end: input.timeSlot.end,
-      },
-      assignedTo,
-      priority: input.priority,
-      status: 'TODO' as const,
-      createdBy,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    const docRef = await addDoc(collection(db, COLLECTION), taskData);
-    const docSnap = await getDoc(docRef);
-
-    return fromFirestore(docSnap);
+      // Convertir les dates ISO en objets Date
+      return {
+        ...task,
+        date: new Date(task.date),
+        createdAt: new Date(task.createdAt),
+        updatedAt: new Date(task.updatedAt),
+      };
+    } catch (error: any) {
+      console.error('Error creating simple task:', error);
+      throw new Error(error.response?.data?.message || 'Erreur lors de la création de la tâche');
+    }
   }
 
   /**
@@ -81,126 +44,168 @@ class SimpleTaskService {
     userIds: string[],
     createdBy: string
   ): Promise<SimpleTask[]> {
-    const batch = writeBatch(db);
-    const now = Timestamp.now();
-    const createdTasks: SimpleTask[] = [];
-
-    for (const userId of userIds) {
-      const taskData = {
+    try {
+      const tasks = await simpleTaskApi.createMultiple({
         title: input.title,
         description: input.description || '',
-        date: Timestamp.fromDate(input.date),
+        date: input.date.toISOString(),
         timeSlot: {
           start: input.timeSlot.start,
           end: input.timeSlot.end,
         },
-        assignedTo: userId,
         priority: input.priority,
-        status: 'TODO' as const,
+        userIds,
         createdBy,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      const newDocRef = doc(collection(db, COLLECTION));
-      batch.set(newDocRef, taskData);
-
-      createdTasks.push({
-        id: newDocRef.id,
-        ...taskData,
-        date: input.date,
-        createdAt: now.toDate(),
-        updatedAt: now.toDate(),
       });
-    }
 
-    await batch.commit();
-    return createdTasks;
+      // Convertir les dates ISO en objets Date
+      return tasks.map(task => ({
+        ...task,
+        date: new Date(task.date),
+        createdAt: new Date(task.createdAt),
+        updatedAt: new Date(task.updatedAt),
+      }));
+    } catch (error: any) {
+      console.error('Error creating multiple simple tasks:', error);
+      throw new Error(error.response?.data?.message || 'Erreur lors de la création des tâches');
+    }
   }
 
   /**
    * Récupérer TOUTES les tâches (pour admin/calendar global)
    */
   async getAll(): Promise<SimpleTask[]> {
-    const q = query(
-      collection(db, COLLECTION),
-      orderBy('date', 'desc')
-    );
+    try {
+      const tasks = await simpleTaskApi.getAll();
 
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(fromFirestore);
+      // Convertir les dates ISO en objets Date
+      return tasks.map(task => ({
+        ...task,
+        date: new Date(task.date),
+        createdAt: new Date(task.createdAt),
+        updatedAt: new Date(task.updatedAt),
+      }));
+    } catch (error: any) {
+      console.error('Error fetching all simple tasks:', error);
+      throw new Error(error.response?.data?.message || 'Erreur lors de la récupération des tâches');
+    }
   }
 
   /**
    * Récupérer par user
    */
   async getByUser(userId: string): Promise<SimpleTask[]> {
-    const q = query(
-      collection(db, COLLECTION),
-      where('assignedTo', '==', userId),
-      orderBy('date', 'desc')
-    );
+    try {
+      const tasks = await simpleTaskApi.getByUser(userId);
 
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(fromFirestore);
+      // Vérifier que tasks est bien un tableau
+      if (!Array.isArray(tasks)) {
+        console.warn('simpleTaskApi.getByUser returned non-array:', tasks);
+        return [];
+      }
+
+      // Convertir les dates ISO en objets Date
+      return tasks.map(task => ({
+        ...task,
+        date: new Date(task.date),
+        createdAt: new Date(task.createdAt),
+        updatedAt: new Date(task.updatedAt),
+      }));
+    } catch (error: any) {
+      console.error('Error fetching user simple tasks:', error);
+      throw new Error(error.response?.data?.message || 'Erreur lors de la récupération des tâches');
+    }
   }
 
   /**
    * Récupérer par user et date
    */
   async getByUserAndDate(userId: string, startDate: Date, endDate: Date): Promise<SimpleTask[]> {
-    const q = query(
-      collection(db, COLLECTION),
-      where('assignedTo', '==', userId),
-      where('date', '>=', Timestamp.fromDate(startDate)),
-      where('date', '<=', Timestamp.fromDate(endDate)),
-      orderBy('date', 'asc')
-    );
+    try {
+      const tasks = await simpleTaskApi.getByUserAndDateRange(
+        userId,
+        startDate.toISOString(),
+        endDate.toISOString()
+      );
 
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(fromFirestore);
+      // Convertir les dates ISO en objets Date
+      return tasks.map(task => ({
+        ...task,
+        date: new Date(task.date),
+        createdAt: new Date(task.createdAt),
+        updatedAt: new Date(task.updatedAt),
+      }));
+    } catch (error: any) {
+      console.error('Error fetching simple tasks by date range:', error);
+      throw new Error(error.response?.data?.message || 'Erreur lors de la récupération des tâches');
+    }
   }
 
   /**
    * Récupérer par ID
    */
   async getById(id: string): Promise<SimpleTask | null> {
-    const docSnap = await getDoc(doc(db, COLLECTION, id));
-    if (!docSnap.exists()) return null;
-    return fromFirestore(docSnap);
+    try {
+      const task = await simpleTaskApi.getById(id);
+
+      // Convertir les dates ISO en objets Date
+      return {
+        ...task,
+        date: new Date(task.date),
+        createdAt: new Date(task.createdAt),
+        updatedAt: new Date(task.updatedAt),
+      };
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      console.error('Error fetching simple task:', error);
+      throw new Error(error.response?.data?.message || 'Erreur lors de la récupération de la tâche');
+    }
   }
 
   /**
    * Mettre à jour
    */
   async update(id: string, updates: Partial<CreateSimpleTaskInput>): Promise<void> {
-    const updateData: any = {
-      ...updates,
-      updatedAt: Timestamp.now(),
-    };
+    try {
+      const updateData: any = {};
 
-    if (updates.date) {
-      updateData.date = Timestamp.fromDate(updates.date);
+      if (updates.title !== undefined) updateData.title = updates.title;
+      if (updates.description !== undefined) updateData.description = updates.description;
+      if (updates.date !== undefined) updateData.date = updates.date.toISOString();
+      if (updates.timeSlot !== undefined) updateData.timeSlot = updates.timeSlot;
+      if (updates.priority !== undefined) updateData.priority = updates.priority;
+
+      await simpleTaskApi.update(id, updateData);
+    } catch (error: any) {
+      console.error('Error updating simple task:', error);
+      throw new Error(error.response?.data?.message || 'Erreur lors de la mise à jour de la tâche');
     }
-
-    await updateDoc(doc(db, COLLECTION, id), updateData);
   }
 
   /**
    * Supprimer
    */
   async delete(id: string): Promise<void> {
-    await deleteDoc(doc(db, COLLECTION, id));
+    try {
+      await simpleTaskApi.delete(id);
+    } catch (error: any) {
+      console.error('Error deleting simple task:', error);
+      throw new Error(error.response?.data?.message || 'Erreur lors de la suppression de la tâche');
+    }
   }
 
   /**
    * Changer statut
    */
   async updateStatus(id: string, status: 'TODO' | 'IN_PROGRESS' | 'DONE'): Promise<void> {
-    await updateDoc(doc(db, COLLECTION, id), {
-      status,
-      updatedAt: Timestamp.now(),
-    });
+    try {
+      await simpleTaskApi.updateStatus(id, status);
+    } catch (error: any) {
+      console.error('Error updating simple task status:', error);
+      throw new Error(error.response?.data?.message || 'Erreur lors de la mise à jour du statut');
+    }
   }
 }
 

@@ -26,6 +26,9 @@ import { ProfileModule } from './profile/profile.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { CapacityModule } from './capacity/capacity.module';
+import { SkillsModule } from './skills/skills.module';
+import { ReportsModule } from './reports/reports.module';
+import { TeleworkModule } from './telework/telework.module';
 
 @Module({
   imports: [
@@ -62,8 +65,10 @@ import { CapacityModule } from './capacity/capacity.module';
     ActivitiesModule,
     // Module de gestion des tâches simples
     SimpleTasksModule,
-    // Module de gestion des présences et télétravail
+    // Module de gestion des présences
     PresencesModule,
+    // Module de gestion du télétravail
+    TeleworkModule,
     // Module de gestion des todos personnelles
     PersonalTodosModule,
     // Module de gestion des epics
@@ -82,6 +87,10 @@ import { CapacityModule } from './capacity/capacity.module';
     AnalyticsModule,
     // Module de gestion de la capacité et allocations
     CapacityModule,
+    // Module de gestion des compétences (skills)
+    SkillsModule,
+    // Module de gestion des rapports et exports
+    ReportsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

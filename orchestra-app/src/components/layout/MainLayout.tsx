@@ -30,6 +30,7 @@ import TimelineIcon from '@mui/icons-material/Timeline';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import SupervisedUserCircleIcon from '@mui/icons-material/SupervisedUserCircle';
+import SchoolIcon from '@mui/icons-material/School';
 import { RootState, AppDispatch } from '../../store';
 import { signOut } from '../../store/slices/authSlice';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -75,12 +76,13 @@ export const MainLayout: React.FC = () => {
     { text: 'Supervision', icon: <SupervisedUserCircleIcon />, path: '/team-supervision', permission: 'team.supervise' },
     { text: 'Rapports', icon: <BarChartIcon />, path: '/reports', permission: 'report.view' },
     { text: 'Administration RH', icon: <AdminPanelSettingsIcon />, path: '/hr-admin', permission: 'hr.manage_employees' },
+    { text: 'Tutoriel', icon: <SchoolIcon />, path: '/tutorial', permission: null },
     { text: 'Paramètres', icon: <SettingsIcon />, path: '/settings', permission: null },
   ];
 
-  // Filtrage spécial pour les contributeurs et teamLead : accès limité à Mon Espace et Calendrier uniquement
+  // Filtrage spécial pour les contributeurs et teamLead : accès limité à Mon Espace, Calendrier et Tutoriel
   const isLimitedRole = user?.role === 'contributor' || user?.role === 'teamLead';
-  const limitedRoleAllowedPaths = ['/dashboard-hub', '/calendar'];
+  const limitedRoleAllowedPaths = ['/dashboard-hub', '/calendar', '/tutorial'];
 
   // Filtrer les items selon les permissions utilisateur
   const menuItems = allMenuItems.filter(item => {

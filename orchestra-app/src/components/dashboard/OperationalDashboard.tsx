@@ -130,7 +130,7 @@ export const OperationalDashboard: React.FC<OperationalDashboardProps> = ({
 
       setStats(statsData);
       setProjects(projectsData);
-      setTasks(tasksData);
+      setTasks(tasksData as TaskSummary[]);
       setTeamWorkload(workloadData);
       setActivityFeed(activityData);
       setSkillsData(skillsData);

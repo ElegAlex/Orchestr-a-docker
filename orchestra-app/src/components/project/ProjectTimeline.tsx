@@ -65,7 +65,7 @@ const ProjectTimeline: React.FC<ProjectTimelineProps> = ({ projectId }) => {
         const dateB = new Date(a.createdAt).getTime();
         return dateA - dateB;
       });
-      setTasks(sortedTasks);
+      setTasks(sortedTasks as any);
     } catch (error) {
       console.error('Erreur lors du chargement des tâches:', error);
     } finally {

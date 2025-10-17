@@ -29,8 +29,8 @@ import {
 } from '@mui/icons-material';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../store';
-import { Task, Milestone, Project } from '../../types';
-import { taskService } from '../../services/task.service';
+import { Milestone, Project } from '../../types';
+import { taskService, Task } from '../../services/task.service';
 import { milestoneService } from '../../services/milestone.service';
 import { projectService } from '../../services/project.service';
 import TaskCardWithTimeEntry from './TaskCardWithTimeEntry';
@@ -104,7 +104,7 @@ const IndividualMilestoneDashboard: React.FC = () => {
       // Combiner les jalons de tous les projets
       const allMilestones = milestonesData.flat();
 
-      setTasks(userTasks);
+      setTasks(userTasks as any);
       setProjects(projectsMap);
       setMilestones(allMilestones);
     } catch (error) {

@@ -3,7 +3,19 @@
     "allow": [
       "Bash(npm run build:*)",
       "Bash(export GOOGLE_APPLICATION_CREDENTIALS=\"./service-account-real.json\")",
-      "Bash(firebase deploy:*)"
+      "Bash(firebase deploy:*)",
+      "Bash(docker-compose:*)",
+      "Bash(chmod:*)",
+      "Bash(/tmp/test_comments.sh:*)",
+      "Bash(/tmp/test_comments_v2.sh:*)",
+      "Bash(curl -s \"http://localhost:4000/api/auth/login\" -H \"Content-Type: application/json\" -d '{\"\"\"\"email\"\"\"\":\"\"\"\"test.admin@orchestra.local\"\"\"\",\"\"\"\"password\"\"\"\":\"\"\"\"Admin1234\"\"\"\"}')",
+      "Bash(xargs -I {} curl -s \"http://localhost:4000/api/projects\" -H \"Authorization: Bearer {}\")",
+      "Bash(/tmp/get_project.sh:*)",
+      "Bash(/tmp/test_comments_simple.sh:*)",
+      "Bash(/tmp/test_comments_full.sh:*)",
+      "Bash(/tmp/test_documents.sh:*)",
+      "Bash(/tmp/test_leaves.sh:*)",
+      "Bash(xargs:*)"
     ],
     "deny": [],
     "ask": []

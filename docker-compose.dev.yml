@@ -1,0 +1,93 @@
+version: '3.8'
+
+# ==========================================
+# ORCHESTR'A - DEVELOPMENT ENVIRONMENT
+# ==========================================
+# Ce fichier docker-compose est conçu pour le développement local.
+# Il lance PostgreSQL, Redis et MinIO pour que tu puisses développer
+# le backend NestJS sans avoir à installer ces services localement.
+
+services:
+  # -----------------------------------
+  # PostgreSQL - Base de données
+  # -----------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: orchestr-a-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: orchestra_dev
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: devpassword
+    ports:
+      - "5432:5432"  # Port exposé sur ton PC
+    volumes:
+      - postgres-dev-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d orchestra_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - orchestr-a-dev
+
+  # -----------------------------------
+  # Redis - Cache et Sessions
+  # -----------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: orchestr-a-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-dev-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - orchestr-a-dev
+
+  # -----------------------------------
+  # MinIO - Stockage de fichiers (S3-compatible)
+  # -----------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: orchestr-a-minio-dev
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: devuser
+      MINIO_ROOT_PASSWORD: devpassword
+    ports:
+      - "9000:9000"  # API S3
+      - "9001:9001"  # Console Web (interface graphique)
+    volumes:
+      - minio-dev-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - orchestr-a-dev
+
+# ==========================================
+# VOLUMES - Persistance des données
+# ==========================================
+volumes:
+  postgres-dev-data:
+    driver: local
+  redis-dev-data:
+    driver: local
+  minio-dev-data:
+    driver: local
+
+# ==========================================
+# NETWORKS - Réseau Docker isolé
+# ==========================================
+networks:
+  orchestr-a-dev:
+    driver: bridge

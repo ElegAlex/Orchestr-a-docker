@@ -37,8 +37,8 @@ import {
 } from '@mui/icons-material';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../store';
-import { Task, TaskStatus, TimeEntry } from '../../types';
-import { taskService } from '../../services/task.service';
+import { taskService, Task, TaskStatus } from '../../services/task.service';
+import { TimeEntry } from '../../types';
 import { projectService } from '../../services/project.service';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';

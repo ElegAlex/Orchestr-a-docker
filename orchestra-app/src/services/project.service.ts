@@ -1,383 +1,324 @@
-import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-  orderBy,
-  QueryConstraint,
-  Timestamp,
-  limit
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
-import { Project, ProjectStatus, Priority, ProjectCategory } from '../types';
+import { projectsAPI } from './api';
+import type { Project, ProjectStatus, Priority, ProjectCategory } from '../types';
 
-const COLLECTION_NAME = 'projects';
+/**
+ * ProjectService - Wrapper autour de projectsAPI pour compatibilité avec le code existant
+ *
+ * Cette classe maintient la même interface que l'ancien service Firebase
+ * mais utilise l'API REST backend en interne.
+ *
+ * Note: Fichier Firebase original sauvegardé dans project.service.ts.firebase-backup
+ */
 
-// Fonction utilitaire pour transformer les données Firestore en Project
-function transformFirestoreProject(doc: any): Project {
-  const data = doc.data ? doc.data() : doc;
-  return {
-    id: doc.id,
-    ...data,
-    startDate: data.startDate?.toDate ? data.startDate.toDate() : (data.startDate ? new Date(data.startDate) : new Date()),
-    deadline: data.deadline?.toDate ? data.deadline.toDate() : (data.deadline ? new Date(data.deadline) : new Date()),
-    dueDate: data.dueDate?.toDate ? data.dueDate.toDate() : (data.dueDate?.toDate ? data.dueDate.toDate() : (data.dueDate || data.deadline ? new Date(data.dueDate || data.deadline) : new Date())),
-    endDate: data.dueDate?.toDate ? data.dueDate.toDate() : undefined, // DEPRECATED fallback
-    actualDueDate: data.actualDueDate?.toDate ? data.actualDueDate.toDate() : (data.actualEndDate?.toDate ? data.actualEndDate.toDate() : undefined),
-    actualEndDate: data.actualEndDate?.toDate ? data.actualEndDate.toDate() : undefined, // DEPRECATED fallback
-    createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : new Date(),
-    updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate() : new Date(),
-    teamMembers: data.teamMembers || [],
-    tags: data.tags || [],
-  } as Project;
-}
+const COLLECTION_NAME = 'projects'; // Conservé pour compatibilité avec les logs
 
 export class ProjectService {
+  /**
+   * Créer un nouveau projet
+   */
   async createProject(projectData: Omit<Project, 'id' | 'createdAt' | 'updatedAt'>): Promise<Project> {
-    const now = Timestamp.now();
-    const project = {
-      ...projectData,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    const docRef = await addDoc(collection(db, COLLECTION_NAME), project);
-    return { 
-      id: docRef.id, 
-      ...projectData,
-      createdAt: project.createdAt.toDate(),
-      updatedAt: project.updatedAt.toDate()
-    };
-  }
-
-  async getProject(id: string): Promise<Project | null> {
-    console.log('ProjectService.getProject: Début pour ID:', id);
     try {
-      const docRef = doc(db, COLLECTION_NAME, id);
-      console.log('ProjectService.getProject: DocRef créé, récupération...');
-      const docSnap = await getDoc(docRef);
-      console.log('ProjectService.getProject: DocSnap reçu, exists:', docSnap.exists());
-      
-      if (docSnap.exists()) {
-        const project = transformFirestoreProject(docSnap);
-        console.log('ProjectService.getProject: Projet transformé:', project);
-        return project;
-      }
-      console.log('ProjectService.getProject: Document nexiste pas');
-      return null;
-    } catch (error) {
-      console.error('ProjectService.getProject: Erreur:', error);
+      const createDto = {
+        name: projectData.name,
+        description: projectData.description || '',
+        managerId: projectData.managerId,
+        status: projectData.status || ('ACTIVE' as ProjectStatus),
+        priority: projectData.priority || ('MEDIUM' as Priority),
+        startDate: projectData.startDate?.toISOString?.() || new Date(projectData.startDate).toISOString(),
+        dueDate: projectData.dueDate?.toISOString?.() || new Date(projectData.dueDate || projectData.deadline).toISOString(),
+        budget: projectData.budget,
+        tags: projectData.tags || [],
+      };
+
+      return await projectsAPI.createProject(createDto);
+    } catch (error: any) {
+      console.error('Error creating project:', error);
       throw error;
     }
   }
 
-  async updateProject(id: string, updates: Partial<Project>): Promise<Project> {
-    const docRef = doc(db, COLLECTION_NAME, id);
-    const updatedData = {
-      ...updates,
-      updatedAt: Timestamp.now(),
-    };
-    
-    await updateDoc(docRef, updatedData);
-    
-    // Récupérer le projet mis à jour
-    const updatedProject = await this.getProject(id);
-    if (!updatedProject) {
-      throw new Error('Project not found after update');
+  /**
+   * Récupérer un projet par son ID
+   */
+  async getProject(id: string): Promise<Project | null> {
+    try {
+      return await projectsAPI.getProject(id);
+    } catch (error: any) {
+      if (error.message?.includes('non trouvé') || error.message?.includes('404')) {
+        return null;
+      }
+      console.error('Error getting project:', error);
+      throw error;
     }
-    
-    return updatedProject;
-  }
-
-  async deleteProject(id: string): Promise<void> {
-    const docRef = doc(db, COLLECTION_NAME, id);
-    await deleteDoc(docRef);
-  }
-
-  async getAllProjects(): Promise<Project[]> {
-    const q = query(collection(db, COLLECTION_NAME), orderBy('updatedAt', 'desc'));
-    const querySnapshot = await getDocs(q);
-    
-    return querySnapshot.docs.map(doc => transformFirestoreProject(doc));
-  }
-
-  async getProjectsByUser(userId: string): Promise<Project[]> {
-    const q = query(
-      collection(db, COLLECTION_NAME),
-      where('projectManager', '==', userId)
-    );
-
-    const querySnapshot = await getDocs(q);
-
-    // Tri côté client temporairement
-    const projects = querySnapshot.docs.map(doc => transformFirestoreProject(doc));
-    return projects.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }
 
   /**
-   * Récupère les projets où l'utilisateur est membre de l'équipe (teamMembers)
-   * Filtré sur les projets actifs uniquement
+   * Mettre à jour un projet
+   */
+  async updateProject(id: string, updates: Partial<Project>): Promise<Project> {
+    try {
+      const updateDto: any = {};
+
+      if (updates.name !== undefined) updateDto.name = updates.name;
+      if (updates.description !== undefined) updateDto.description = updates.description;
+      if (updates.managerId !== undefined) updateDto.managerId = updates.managerId;
+      if (updates.status !== undefined) updateDto.status = updates.status;
+      if (updates.priority !== undefined) updateDto.priority = updates.priority;
+      if (updates.budget !== undefined) updateDto.budget = updates.budget;
+      if (updates.tags !== undefined) updateDto.tags = updates.tags;
+
+      // Gérer les dates
+      if (updates.startDate !== undefined) {
+        updateDto.startDate = updates.startDate?.toISOString?.() || new Date(updates.startDate).toISOString();
+      }
+      if (updates.dueDate !== undefined) {
+        updateDto.dueDate = updates.dueDate?.toISOString?.() || new Date(updates.dueDate).toISOString();
+      } else if (updates.deadline !== undefined) {
+        // Support ancien champ deadline
+        updateDto.dueDate = updates.deadline?.toISOString?.() || new Date(updates.deadline).toISOString();
+      }
+      if (updates.actualDueDate !== undefined) {
+        updateDto.actualDueDate = updates.actualDueDate?.toISOString?.() || new Date(updates.actualDueDate).toISOString();
+      }
+
+      return await projectsAPI.updateProject(id, updateDto);
+    } catch (error: any) {
+      console.error('Error updating project:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Supprimer un projet
+   */
+  async deleteProject(id: string): Promise<void> {
+    try {
+      await projectsAPI.deleteProject(id);
+    } catch (error: any) {
+      console.error('Error deleting project:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Récupérer tous les projets
+   */
+  async getAllProjects(): Promise<Project[]> {
+    try {
+      const response = await projectsAPI.getProjects({
+        limit: 1000,
+      });
+
+      return response.data;
+    } catch (error: any) {
+      console.error('Error getting all projects:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Récupérer les projets gérés par un utilisateur
+   */
+  async getProjectsByUser(userId: string): Promise<Project[]> {
+    try {
+      return await projectsAPI.getProjectsByManager(userId);
+    } catch (error: any) {
+      console.error('Error getting projects by user:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Récupérer les projets où l'utilisateur est membre d'équipe
    */
   async getProjectsByTeamMember(userId: string): Promise<Project[]> {
     try {
-      // Récupérer tous les projets actifs
-      const allProjects = await this.getActiveProjects();
+      // TODO: Le backend n'a pas encore de route pour filtrer par team member
+      // Pour l'instant, récupérer tous les projets et filtrer côté client
+      const allProjects = await this.getAllProjects();
 
-      // Filtrer côté client pour les projets où userId est dans teamMembers
-      const userProjects = allProjects.filter(project =>
-        project.teamMembers?.some(member => member.userId === userId)
+      // Filtrer les projets où l'utilisateur est dans teamMembers
+      return allProjects.filter((project) =>
+        project.teamMembers?.includes(userId)
       );
-
-      // Trier par date de mise à jour décroissante
-      return userProjects.sort((a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-      );
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error getting projects by team member:', error);
       return [];
     }
   }
 
+  /**
+   * Récupérer les projets par statut
+   */
   async getProjectsByStatus(status: ProjectStatus): Promise<Project[]> {
-    const q = query(
-      collection(db, COLLECTION_NAME),
-      where('status', '==', status),
-      orderBy('updatedAt', 'desc')
-    );
-    
-    const querySnapshot = await getDocs(q);
-    
-    return querySnapshot.docs.map(doc => transformFirestoreProject(doc));
+    try {
+      return await projectsAPI.getProjectsByStatus(status);
+    } catch (error: any) {
+      console.error('Error getting projects by status:', error);
+      return [];
+    }
   }
 
-  // Méthode optimisée pour le calendrier - seulement projets actifs
+  /**
+   * Récupérer les projets actifs
+   */
   async getActiveProjects(): Promise<Project[]> {
     try {
-      const q = query(
-        collection(db, COLLECTION_NAME),
-        where('status', 'in', ['active', 'planning']),
-        limit(50) // Limiter pour la performance
-      );
-      
-      const querySnapshot = await getDocs(q);
-      return querySnapshot.docs.map(doc => transformFirestoreProject(doc));
-    } catch (error) {
+      return await projectsAPI.getActiveProjects();
+    } catch (error: any) {
       console.error('Error getting active projects:', error);
-      // Fallback: récupérer tous les projets et filtrer
-      const allProjects = await this.getAllProjects();
-      return allProjects.filter(p => p.status === 'active' || p.status === 'planning');
+      return [];
     }
   }
 
+  /**
+   * Récupérer les projets par catégorie
+   * NOTE: Le backend n'a pas encore de champ "category"
+   */
   async getProjectsByCategory(category: ProjectCategory): Promise<Project[]> {
-    const q = query(
-      collection(db, COLLECTION_NAME),
-      where('category', '==', category),
-      orderBy('updatedAt', 'desc')
-    );
-    
-    const querySnapshot = await getDocs(q);
-    
-    return querySnapshot.docs.map(doc => transformFirestoreProject(doc));
+    console.warn('getProjectsByCategory: Feature not yet fully supported by backend API');
+    // TODO: Ajouter le champ category au backend
+    return [];
   }
 
-  async searchProjects(searchTerm: string, filters?: {
-    status?: ProjectStatus;
-    priority?: Priority;
-    category?: ProjectCategory;
-    manager?: string;
-  }): Promise<Project[]> {
-    const constraints: QueryConstraint[] = [];
-
-    if (filters?.status) {
-      constraints.push(where('status', '==', filters.status));
+  /**
+   * Rechercher des projets
+   */
+  async searchProjects(
+    searchTerm: string,
+    filters?: {
+      status?: ProjectStatus;
+      priority?: Priority;
+      managerId?: string;
     }
-    
-    if (filters?.priority) {
-      constraints.push(where('priority', '==', filters.priority));
-    }
-    
-    if (filters?.category) {
-      constraints.push(where('category', '==', filters.category));
-    }
-    
-    if (filters?.manager) {
-      constraints.push(where('projectManager', '==', filters.manager));
-    }
-
-    constraints.push(orderBy('updatedAt', 'desc'));
-
-    const q = query(collection(db, COLLECTION_NAME), ...constraints);
-    const querySnapshot = await getDocs(q);
-    
-    const projects = querySnapshot.docs.map(doc => transformFirestoreProject(doc));
-
-    // Filtrage côté client pour la recherche textuelle
-    if (searchTerm) {
-      const lowercaseSearch = searchTerm.toLowerCase();
-      return projects.filter(project =>
-        project.name.toLowerCase().includes(lowercaseSearch) ||
-        project.description.toLowerCase().includes(lowercaseSearch) ||
-        project.code.toLowerCase().includes(lowercaseSearch) ||
-        project.tags.some(tag => tag.toLowerCase().includes(lowercaseSearch))
-      );
-    }
-
-    return projects;
-  }
-
-  async addTeamMember(projectId: string, member: {
-    userId: string;
-    role: string;
-    allocationPercentage: number;
-    startDate: Date;
-    endDate?: Date;
-  }): Promise<void> {
-    const project = await this.getProject(projectId);
-    if (!project) {
-      throw new Error('Project not found');
-    }
-
-    const updatedTeamMembers = [...project.teamMembers, member];
-    await this.updateProject(projectId, { teamMembers: updatedTeamMembers });
-  }
-
-  async removeTeamMember(projectId: string, userId: string): Promise<void> {
-    const project = await this.getProject(projectId);
-    if (!project) {
-      throw new Error('Project not found');
-    }
-
-    const updatedTeamMembers = project.teamMembers.filter(
-      member => member.userId !== userId
-    );
-    await this.updateProject(projectId, { teamMembers: updatedTeamMembers });
-  }
-
-  async updateProjectProgress(projectId: string): Promise<void> {
+  ): Promise<Project[]> {
     try {
-      const project = await this.getProject(projectId);
-      if (!project) {
-        throw new Error('Project not found');
-      }
+      return await projectsAPI.searchProjects(searchTerm, 50);
+    } catch (error: any) {
+      console.error('Error searching projects:', error);
+      return [];
+    }
+  }
 
-      // Récupérer toutes les tâches du projet
-      const tasksQuery = query(
-        collection(db, 'tasks'),
-        where('projectId', '==', projectId)
-      );
-      const tasksSnapshot = await getDocs(tasksQuery);
-      
-      if (tasksSnapshot.empty) {
-        // Aucune tâche = 0% de progression
-        await this.updateProject(projectId, { progress: 0 });
-        return;
-      }
-
-      let totalStoryPoints = 0;
-      let completedStoryPoints = 0;
-      let totalTasks = 0;
-      let completedTasks = 0;
-
-      tasksSnapshot.docs.forEach(doc => {
-        const task = doc.data();
-
-        // Exclure les sous-tâches du calcul de progression
-        // Seules les tâches parentes comptent
-        if (task.parentTaskId) {
-          return; // C'est une sous-tâche, on la skip
-        }
-
-        totalTasks++;
-
-        const storyPoints = task.storyPoints || 1;
-        totalStoryPoints += storyPoints;
-
-        if (task.status === 'DONE') {
-          completedTasks++;
-          completedStoryPoints += storyPoints;
-        }
+  /**
+   * Ajouter un membre à l'équipe du projet
+   */
+  async addTeamMember(
+    projectId: string,
+    member: {
+      userId: string;
+      role?: 'owner' | 'manager' | 'member';
+    }
+  ): Promise<void> {
+    try {
+      await projectsAPI.addMember(projectId, {
+        userId: member.userId,
+        role: member.role || 'member',
       });
-
-      // Calculer le progrès basé sur les story points si disponibles, sinon sur le nombre de tâches
-      let progress: number;
-      if (totalStoryPoints > 0) {
-        progress = Math.round((completedStoryPoints / totalStoryPoints) * 100);
-      } else {
-        progress = Math.round((completedTasks / totalTasks) * 100);
-      }
-
-      // Mettre à jour le progrès du projet
-      await this.updateProject(projectId, { progress });
-      
-      console.log(`Project ${projectId} progress updated to ${progress}% (${completedTasks}/${totalTasks} tasks, ${completedStoryPoints}/${totalStoryPoints} story points)`);
-      
-    } catch (error) {
-      console.error('Error updating project progress:', error);
+    } catch (error: any) {
+      console.error('Error adding team member:', error);
       throw error;
     }
   }
 
+  /**
+   * Retirer un membre de l'équipe du projet
+   */
+  async removeTeamMember(projectId: string, userId: string): Promise<void> {
+    try {
+      await projectsAPI.removeMember(projectId, userId);
+    } catch (error: any) {
+      console.error('Error removing team member:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Mettre à jour la progression du projet
+   * NOTE: Calculé automatiquement par le backend
+   */
+  async updateProjectProgress(projectId: string): Promise<void> {
+    console.log('updateProjectProgress: Progress is automatically calculated by backend');
+    // Le backend calcule automatiquement la progression basée sur les tâches
+    // Pas besoin de faire quoi que ce soit
+  }
+
+  /**
+   * Dupliquer un projet
+   * NOTE: Non supporté par le backend actuellement
+   */
   async duplicateProject(projectId: string, newName: string): Promise<Project> {
+    console.warn('duplicateProject: Feature not yet supported by backend API');
+
+    // TODO: Implémenter côté backend
+    // Pour l'instant, récupérer le projet et le recréer
     const originalProject = await this.getProject(projectId);
     if (!originalProject) {
       throw new Error('Project not found');
     }
 
-    const duplicatedProject = {
+    const duplicatedProject = await this.createProject({
       ...originalProject,
       name: newName,
-      code: `${originalProject.code}-COPY`,
-      status: 'draft' as ProjectStatus,
+      status: 'PLANNING' as ProjectStatus,
+      // Réinitialiser certains champs
       progress: 0,
-      actualDueDate: undefined,
-      actualEndDate: undefined, // DEPRECATED fallback
-      spentBudget: 0,
-    };
-
-    // Supprimer les champs qui ne doivent pas être copiés
-    delete (duplicatedProject as any).id;
-    delete (duplicatedProject as any).createdAt;
-    delete (duplicatedProject as any).updatedAt;
-
-    return await this.createProject(duplicatedProject);
-  }
-
-  async archiveProject(projectId: string): Promise<void> {
-    await this.updateProject(projectId, {
-      status: 'completed',
-      actualDueDate: new Date()
+      teamMembers: [],
     });
+
+    return duplicatedProject;
   }
 
   /**
-   * Force le recalcul du progrès de tous les projets
-   * Utile pour la maintenance ou la correction des données
+   * Archiver un projet
+   */
+  async archiveProject(projectId: string): Promise<void> {
+    try {
+      await projectsAPI.updateProject(projectId, {
+        status: 'ARCHIVED' as ProjectStatus,
+      });
+    } catch (error: any) {
+      console.error('Error archiving project:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Recalculer la progression de tous les projets
+   * NOTE: Le backend calcule automatiquement la progression
    */
   async recalculateAllProjectsProgress(): Promise<void> {
+    console.log('recalculateAllProjectsProgress: Progress is automatically calculated by backend');
+    // Le backend calcule automatiquement la progression
+    // Pas besoin de faire quoi que ce soit
+  }
+
+  /**
+   * Récupérer les statistiques d'un projet
+   */
+  async getProjectStats(projectId: string) {
     try {
-      const projects = await this.getAllProjects();
-      console.log(`Recalculating progress for ${projects.length} projects...`);
-      
-      for (const project of projects) {
-        try {
-          await this.updateProjectProgress(project.id);
-        } catch (error) {
-          console.error(`Error updating progress for project ${project.id} (${project.name}):`, error);
-        }
-      }
-      
-      console.log('Project progress recalculation completed');
-    } catch (error) {
-      console.error('Error during bulk progress recalculation:', error);
+      return await projectsAPI.getProjectStats(projectId);
+    } catch (error: any) {
+      console.error('Error getting project stats:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Récupérer les membres d'un projet
+   */
+  async getProjectMembers(projectId: string) {
+    try {
+      return await projectsAPI.getProjectMembers(projectId);
+    } catch (error: any) {
+      console.error('Error getting project members:', error);
+      return [];
     }
   }
 }
 
+/**
+ * Instance globale du service projet
+ */
 export const projectService = new ProjectService();

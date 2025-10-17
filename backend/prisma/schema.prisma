@@ -137,6 +137,7 @@ model User {
   documents        Document[]      @relation("DocumentUploader")
   simpleTasksAssigned SimpleTask[] @relation("SimpleTaskAssignee")
   simpleTasksCreated  SimpleTask[] @relation("SimpleTaskCreator")
+  userTeleworkProfile UserTeleworkProfile?
   teleworkOverrides   TeleworkOverride[]
   personalTodos       PersonalTodo[]
   timeEntries         TimeEntry[]
@@ -144,6 +145,7 @@ model User {
   resourceAllocations ResourceAllocation[]
   userCapacities      UserCapacity[]
   userSkills          UserSkill[]
+  reports             Report[]
 
   @@map("users")
   @@index([email])
@@ -167,7 +169,8 @@ model Department {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   // Relations
-  users       User[]
+  users              User[]
+  teamTeleworkRules  TeamTeleworkRule[]
 
   @@map("departments")
 }
@@ -519,23 +522,117 @@ enum ApprovalStatus {
   REJECTED
 }
 
+enum TeleworkDayMode {
+  DEFAULT   // Suit le mode par défaut du profil
+  REMOTE    // Télétravail
+  OFFICE    // Bureau
+  OFF       // Jour non travaillé
+}
+
+enum RecurrenceType {
+  WEEKLY
+  SPECIFIC_DATES
+}
+
+// ==========================================
+// MODELS - Telework Service (Service 27)
+// ==========================================
+
+model UserTeleworkProfile {
+  id          String   @id @default(uuid())
+  userId      String   @unique @map("user_id")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  displayName String   @map("display_name")
+
+  // Mode par défaut (REMOTE ou ONSITE)
+  defaultMode TeleworkMode @default(ONSITE) @map("default_mode")
+
+  // Pattern hebdomadaire (stocké en JSON)
+  weeklyPattern Json   @default("{}") @map("weekly_pattern")
+
+  // Contraintes
+  constraints Json     @default("{}")
+
+  isActive    Boolean  @default(true) @map("is_active")
+
+  createdBy   String   @map("created_by")
+  updatedBy   String   @map("updated_by")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("user_telework_profiles")
+  @@index([userId])
+  @@index([isActive])
+}
+
 model TeleworkOverride {
-  id        String          @id @default(uuid())
-  userId    String          @map("user_id")
-  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id             String          @id @default(uuid())
+  userId         String          @map("user_id")
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  date      DateTime        // Date du télétravail exceptionnel
-  mode      TeleworkMode    @default(REMOTE)
+  date           DateTime        // Date du télétravail exceptionnel
+  mode           TeleworkMode    // REMOTE ou ONSITE
 
-  status    ApprovalStatus  @default(PENDING) @map("approval_status")
-  reason    String?         @db.Text // Raison de la demande
+  approvalStatus ApprovalStatus  @default(PENDING) @map("approval_status")
+  reason         String?         @db.Text // Raison de la demande
 
-  createdAt DateTime        @default(now()) @map("created_at")
-  updatedAt DateTime        @updatedAt @map("updated_at")
+  // Approbation
+  approvedBy     String?         @map("approved_by")
+  approvedAt     DateTime?       @map("approved_at")
+  rejectionReason String?        @db.Text @map("rejection_reason")
+
+  // Expiration (optionnelle)
+  expiresAt      DateTime?       @map("expires_at")
+
+  createdBy      String          @map("created_by")
+  updatedBy      String?         @map("updated_by")
+
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
 
   @@map("telework_overrides")
   @@index([userId, date])
-  @@index([date, status])
+  @@index([date, approvalStatus])
+  @@index([approvalStatus])
+}
+
+model TeamTeleworkRule {
+  id              String         @id @default(uuid())
+
+  name            String         // Nom de la règle
+  description     String?        @db.Text
+
+  // Équipe ou département concerné
+  teamId          String?        @map("team_id")
+  departmentId    String?        @map("department_id")
+  department      Department?    @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  // Utilisateurs affectés (liste d'IDs)
+  affectedUserIds String[]       @default([]) @map("affected_user_ids")
+
+  // Utilisateurs exemptés (liste d'IDs)
+  exemptions      String[]       @default([])
+
+  // Mode requis (REMOTE ou ONSITE)
+  requiredMode    TeleworkMode   @map("required_mode")
+
+  // Récurrence (JSON)
+  recurrence      Json
+
+  isActive        Boolean        @default(true) @map("is_active")
+
+  createdBy       String         @map("created_by")
+  updatedBy       String?        @map("updated_by")
+
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  @@map("team_telework_rules")
+  @@index([teamId])
+  @@index([departmentId])
+  @@index([isActive])
 }
 
 // ==========================================
@@ -813,7 +910,7 @@ model Webhook {
   headers     Json?          // Custom HTTP headers (JSON object)
 
   // Retry configuration
-  retryConfig Json?          // { maxRetries: 3, retryDelay: 1000, backoffMultiplier: 2 }
+  retryConfig Json?          @map("retry_config") // { maxRetries: 3, retryDelay: 1000, backoffMultiplier: 2 }
 
   // State
   isActive    Boolean        @default(true) @map("is_active")
@@ -1179,4 +1276,85 @@ model TaskSkill {
   @@unique([taskId, skillId])
   @@index([taskId])
   @@index([skillId])
+}
+
+// ==========================================
+// REPORTS & EXPORTS
+// ==========================================
+
+enum ReportType {
+  PROJECT_SUMMARY       // Résumé projet
+  TASK_ANALYSIS        // Analyse tâches
+  RESOURCE_UTILIZATION // Utilisation ressources
+  LEAVE_SUMMARY        // Résumé congés
+  SKILL_MATRIX         // Matrice compétences
+  CUSTOM               // Rapport personnalisé
+}
+
+enum ExportFormat {
+  PDF
+  EXCEL
+  CSV
+  JSON
+}
+
+enum ReportStatus {
+  PENDING      // En attente de génération
+  GENERATING   // En cours de génération
+  COMPLETED    // Généré avec succès
+  FAILED       // Échec de génération
+}
+
+model Report {
+  id          String       @id @default(uuid())
+  
+  // Informations du rapport
+  name        String
+  type        ReportType
+  description String?
+  
+  // Paramètres du rapport
+  parameters  Json         // Filtres, dates, options de configuration
+  template    String?      // Template utilisé (STANDARD, EXECUTIVE, DETAILED, CUSTOM)
+  
+  // Génération
+  status      ReportStatus @default(PENDING)
+  format      ExportFormat
+  
+  // Fichier généré
+  filename    String?
+  filepath    String?      // Chemin dans MinIO
+  filesize    Int?         // Taille en bytes
+  mimeType    String?      @map("mime_type")
+  
+  // Métadonnées
+  generatedBy String       @map("generated_by") // userId
+  user        User         @relation(fields: [generatedBy], references: [id], onDelete: Cascade)
+  
+  startDate   DateTime?    @map("start_date")  // Période du rapport
+  endDate     DateTime?    @map("end_date")
+  
+  // Résultats
+  summary     Json?        // Résumé des résultats
+  sections    Json?        // Sections du rapport
+  errors      Json?        // Erreurs éventuelles
+  
+  // Partage
+  isPublic    Boolean      @default(false) @map("is_public")
+  sharedWith  String[]     @default([]) @map("shared_with") // userIds
+  
+  // Expiration
+  expiresAt   DateTime?    @map("expires_at")
+  
+  // Timestamps
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  generatedAt DateTime?    @map("generated_at")
+  
+  @@map("reports")
+  @@index([generatedBy])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+  @@index([expiresAt])
 }

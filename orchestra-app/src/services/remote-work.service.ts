@@ -1,15 +1,47 @@
-import {
-  collection,
-  doc,
-  setDoc,
-  getDoc,
-  updateDoc,
-  deleteDoc,
-  onSnapshot,
-  Timestamp
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
+/**
+ * @deprecated Ce service est déprécié et sera supprimé dans une version future.
+ *
+ * Utilisez `teleworkServiceV2` à la place, qui offre toutes les fonctionnalités
+ * de remote-work.service.ts plus des fonctionnalités avancées :
+ * - Workflow d'approbation
+ * - Règles d'équipe
+ * - Validation des contraintes
+ * - Gestion des profils utilisateurs
+ *
+ * Guide de migration :
+ *
+ * Avant (remote-work.service.ts) :
+ * ```typescript
+ * import { remoteWorkService } from './remote-work.service';
+ * const schedule = await remoteWorkService.getUserRemoteSchedule(userId);
+ * ```
+ *
+ * Après (telework-v2.service.ts) :
+ * ```typescript
+ * import { teleworkServiceV2 } from './telework-v2.service';
+ * const schedule = await teleworkServiceV2.getSimpleRemoteSchedule(userId);
+ * ```
+ *
+ * Table de correspondance des méthodes :
+ * - getUserRemoteSchedule()      → getSimpleRemoteSchedule()
+ * - updateUserRemoteSchedule()   → updateSimpleRemoteSchedule()
+ * - isUserRemoteOnDate()         → isUserRemoteOnDate()
+ * - getRemoteWorkStats()         → getSimpleRemoteWorkStats()
+ * - toggleDayRemoteStatus()      → updateSimpleRemoteSchedule() (manuel)
+ * - setSpecificRemoteDay()       → requestOverride()
+ * - getSpecificRemoteDay()       → getUserOverrides() (filtrer par date)
+ * - deleteSpecificRemoteDay()    → deleteOverride()
+ *
+ * @see telework-v2.service.ts Pour le service de remplacement
+ * @see remote-work.service.ts.firebase-backup Pour l'ancienne implémentation Firebase
+ */
 
+import { teleworkServiceV2 } from './telework-v2.service';
+import { Timestamp } from 'firebase/firestore';
+
+/**
+ * @deprecated Utiliser le type de telework-v2.service.ts à la place
+ */
 export interface RemoteWorkSchedule {
   userId: string;
   monday: boolean;
@@ -19,38 +51,49 @@ export interface RemoteWorkSchedule {
   friday: boolean;
   saturday: boolean;
   sunday: boolean;
-  updatedAt: Timestamp;
+  updatedAt: Timestamp | Date;
   updatedBy: string;
 }
 
+/**
+ * @deprecated Utiliser TeleworkOverride de telework-v2.service.ts à la place
+ */
 export interface RemoteWorkDay {
   userId: string;
   date: Date;
   isRemote: boolean;
   note?: string;
-  createdAt: Timestamp;
+  createdAt: Timestamp | Date;
   createdBy: string;
 }
 
+/**
+ * @deprecated Ce service est déprécié. Utilisez teleworkServiceV2 à la place.
+ *
+ * Cette classe redirige toutes les méthodes vers teleworkServiceV2 avec des
+ * adaptateurs de compatibilité pour faciliter la migration.
+ */
 class RemoteWorkService {
   private readonly COLLECTION_NAME = 'remoteWorkSchedules';
   private readonly DAYS_COLLECTION = 'remoteWorkDays';
 
+  constructor() {
+    console.warn(
+      '⚠️ DEPRECATION WARNING: remoteWorkService est déprécié.\n' +
+      'Utilisez teleworkServiceV2 à la place.\n' +
+      'Ce service sera supprimé dans une version future.\n' +
+      'Voir la documentation en haut du fichier pour le guide de migration.'
+    );
+  }
+
   /**
-   * Récupère le planning de télétravail hebdomadaire d'un utilisateur
+   * @deprecated Utiliser teleworkServiceV2.getSimpleRemoteSchedule() à la place
    */
   async getUserRemoteSchedule(userId: string): Promise<RemoteWorkSchedule | null> {
-    try {
-      const docRef = doc(db, this.COLLECTION_NAME, userId);
-      const docSnap = await getDoc(docRef);
+    console.warn('⚠️ getUserRemoteSchedule() est déprécié. Utilisez teleworkServiceV2.getSimpleRemoteSchedule()');
 
-      if (docSnap.exists()) {
-        return {
-          userId,
-          ...docSnap.data()
-        } as RemoteWorkSchedule;
-      }
-
+    const schedule = await teleworkServiceV2.getSimpleRemoteSchedule(userId);
+    if (!schedule) {
       // Retourner un planning par défaut (tout en présentiel)
       return {
         userId,
@@ -61,103 +104,77 @@ class RemoteWorkService {
         friday: false,
         saturday: false,
         sunday: false,
-        updatedAt: Timestamp.now(),
+        updatedAt: new Date(),
         updatedBy: userId
       };
-    } catch (error) {
-      console.error('Erreur lors de la récupération du planning télétravail:', error);
-      return null;
     }
+
+    return {
+      ...schedule,
+      updatedAt: schedule.updatedAt instanceof Date ? schedule.updatedAt : new Date(schedule.updatedAt)
+    };
   }
 
   /**
-   * Met à jour le planning de télétravail hebdomadaire
+   * @deprecated Utiliser teleworkServiceV2.updateSimpleRemoteSchedule() à la place
    */
   async updateUserRemoteSchedule(
     userId: string,
     schedule: Partial<RemoteWorkSchedule>,
     updatedBy: string
   ): Promise<void> {
-    try {
-      const docRef = doc(db, this.COLLECTION_NAME, userId);
+    console.warn('⚠️ updateUserRemoteSchedule() est déprécié. Utilisez teleworkServiceV2.updateSimpleRemoteSchedule()');
 
-      const data = {
-        ...schedule,
-        userId,
-        updatedAt: Timestamp.now(),
-        updatedBy
-      };
+    const cleanSchedule: any = {};
+    const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    days.forEach(day => {
+      if (schedule[day as keyof typeof schedule] !== undefined) {
+        cleanSchedule[day] = schedule[day as keyof typeof schedule];
+      }
+    });
 
-      await setDoc(docRef, data, { merge: true });
-    } catch (error) {
-      console.error('Erreur lors de la mise à jour du planning télétravail:', error);
-      throw error;
-    }
+    await teleworkServiceV2.updateSimpleRemoteSchedule(userId, cleanSchedule, updatedBy);
   }
 
   /**
-   * Bascule l'état de télétravail pour un jour spécifique
+   * @deprecated Utiliser teleworkServiceV2.updateSimpleRemoteSchedule() avec un seul jour à la place
    */
   async toggleDayRemoteStatus(
     userId: string,
     dayOfWeek: keyof Omit<RemoteWorkSchedule, 'userId' | 'updatedAt' | 'updatedBy'>,
     updatedBy: string
   ): Promise<boolean> {
-    try {
-      // Récupérer l'état actuel
-      const currentSchedule = await this.getUserRemoteSchedule(userId);
-      if (!currentSchedule) {
-        throw new Error('Impossible de récupérer le planning actuel');
-      }
+    console.warn('⚠️ toggleDayRemoteStatus() est déprécié. Utilisez teleworkServiceV2.updateSimpleRemoteSchedule()');
 
-      // Basculer l'état
-      const newStatus = !currentSchedule[dayOfWeek];
-
-      // Mettre à jour
-      await this.updateUserRemoteSchedule(
-        userId,
-        { [dayOfWeek]: newStatus },
-        updatedBy
-      );
-
-      return newStatus;
-    } catch (error) {
-      console.error('Erreur lors du basculement du statut télétravail:', error);
-      throw error;
+    // Récupérer l'état actuel
+    const currentSchedule = await this.getUserRemoteSchedule(userId);
+    if (!currentSchedule) {
+      throw new Error('Impossible de récupérer le planning actuel');
     }
+
+    // Basculer l'état
+    const newStatus = !currentSchedule[dayOfWeek];
+
+    // Mettre à jour
+    await this.updateUserRemoteSchedule(
+      userId,
+      { [dayOfWeek]: newStatus },
+      updatedBy
+    );
+
+    return newStatus;
   }
 
   /**
-   * Vérifie si un utilisateur est en télétravail pour une date donnée
+   * @deprecated Utiliser teleworkServiceV2.isUserRemoteOnDate() à la place
    */
   async isUserRemoteOnDate(userId: string, date: Date): Promise<boolean> {
-    try {
-      // Récupérer le planning hebdomadaire
-      const schedule = await this.getUserRemoteSchedule(userId);
-      if (!schedule) return false;
-
-      // Mapper le jour de la semaine
-      const dayOfWeek = date.getDay();
-      const dayMapping: Record<number, keyof RemoteWorkSchedule> = {
-        0: 'sunday',
-        1: 'monday',
-        2: 'tuesday',
-        3: 'wednesday',
-        4: 'thursday',
-        5: 'friday',
-        6: 'saturday'
-      };
-
-      const dayKey = dayMapping[dayOfWeek];
-      return schedule[dayKey] as boolean || false;
-    } catch (error) {
-      console.error('Erreur lors de la vérification du télétravail:', error);
-      return false;
-    }
+    console.warn('⚠️ isUserRemoteOnDate() est déprécié. Utilisez teleworkServiceV2.isUserRemoteOnDate()');
+    return await teleworkServiceV2.isUserRemoteOnDate(userId, date);
   }
 
   /**
-   * Enregistre une journée spécifique de télétravail (override)
+   * @deprecated Utiliser teleworkServiceV2.requestOverride() à la place
    */
   async setSpecificRemoteDay(
     userId: string,
@@ -166,41 +183,20 @@ class RemoteWorkService {
     note: string = '',
     createdBy: string
   ): Promise<void> {
-    try {
-      // Créer un ID unique basé sur userId et date (format local pour éviter les problèmes de timezone)
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      const dateStr = `${year}-${month}-${day}`;
-      const docId = `${userId}_${dateStr}`;
+    console.warn('⚠️ setSpecificRemoteDay() est déprécié. Utilisez teleworkServiceV2.requestOverride()');
 
-      const docRef = doc(db, this.DAYS_COLLECTION, docId);
-
-      const data: RemoteWorkDay = {
-        userId,
-        date,
-        isRemote,
-        note,
-        createdAt: Timestamp.now(),
-        createdBy
-      };
-
-      console.log('🔥 FIREBASE CREATE - Tentative de création:', {
-        collection: this.DAYS_COLLECTION,
-        docId,
-        data: { ...data, date: dateStr }
-      });
-
-      await setDoc(docRef, data);
-      console.log('✅ Document créé avec succès:', docId);
-    } catch (error) {
-      console.error('Erreur lors de l\'enregistrement du jour de télétravail:', error);
-      throw error;
-    }
+    // Créer un override via le service Telework
+    await teleworkServiceV2.requestOverride({
+      userId,
+      date: date.toISOString().split('T')[0],
+      mode: isRemote ? 'remote' : 'office',
+      reason: note,
+      createdBy
+    } as any);
   }
 
   /**
-   * Récupère les statistiques de télétravail pour une période
+   * @deprecated Utiliser teleworkServiceV2.getSimpleRemoteWorkStats() à la place
    */
   async getRemoteWorkStats(
     userId: string,
@@ -212,162 +208,83 @@ class RemoteWorkService {
     officeDays: number;
     remotePercentage: number;
   }> {
-    try {
-      let remoteDays = 0;
-      let officeDays = 0;
-      let totalDays = 0;
-
-      const schedule = await this.getUserRemoteSchedule(userId);
-      if (!schedule) {
-        return {
-          totalDays: 0,
-          remoteDays: 0,
-          officeDays: 0,
-          remotePercentage: 0
-        };
-      }
-
-      // Parcourir chaque jour de la période
-      const current = new Date(startDate);
-      while (current <= endDate) {
-        // Exclure les weekends
-        if (current.getDay() !== 0 && current.getDay() !== 6) {
-          totalDays++;
-
-          const isRemote = await this.isUserRemoteOnDate(userId, current);
-          if (isRemote) {
-            remoteDays++;
-          } else {
-            officeDays++;
-          }
-        }
-
-        current.setDate(current.getDate() + 1);
-      }
-
-      const remotePercentage = totalDays > 0 ? (remoteDays / totalDays) * 100 : 0;
-
-      return {
-        totalDays,
-        remoteDays,
-        officeDays,
-        remotePercentage: Math.round(remotePercentage)
-      };
-    } catch (error) {
-      console.error('Erreur lors du calcul des statistiques télétravail:', error);
-      return {
-        totalDays: 0,
-        remoteDays: 0,
-        officeDays: 0,
-        remotePercentage: 0
-      };
-    }
+    console.warn('⚠️ getRemoteWorkStats() est déprécié. Utilisez teleworkServiceV2.getSimpleRemoteWorkStats()');
+    return await teleworkServiceV2.getSimpleRemoteWorkStats(userId, startDate, endDate);
   }
 
   /**
-   * Écoute les changements du planning télétravail en temps réel
+   * @deprecated Fonctionnalité temps réel non supportée dans teleworkServiceV2 (utiliser polling)
    */
   subscribeToRemoteSchedule(
     userId: string,
     callback: (schedule: RemoteWorkSchedule | null) => void
   ): () => void {
-    const docRef = doc(db, this.COLLECTION_NAME, userId);
+    console.warn(
+      '⚠️ subscribeToRemoteSchedule() est déprécié et non supporté dans teleworkServiceV2.\n' +
+      'Utilisez un polling régulier avec getSimpleRemoteSchedule() à la place.'
+    );
 
-    const unsubscribe = onSnapshot(docRef, (doc) => {
-      if (doc.exists()) {
-        callback({
-          userId,
-          ...doc.data()
-        } as RemoteWorkSchedule);
-      } else {
-        callback(null);
-      }
-    }, (error) => {
-      console.error('Erreur lors de l\'écoute du planning télétravail:', error);
-      callback(null);
-    });
-
-    return unsubscribe;
+    // Retourner une fonction de désabonnement vide
+    return () => {};
   }
 
   /**
-   * Récupère un jour spécifique de télétravail pour un utilisateur
+   * @deprecated Utiliser teleworkServiceV2.getUserOverrides() filtré par date à la place
    */
   async getSpecificRemoteDay(userId: string, date: Date): Promise<RemoteWorkDay | null> {
-    try {
-      // Format local pour éviter les problèmes de timezone
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      const dateStr = `${year}-${month}-${day}`;
-      const docId = `${userId}_${dateStr}`;
-      const docRef = doc(db, this.DAYS_COLLECTION, docId);
-      const docSnap = await getDoc(docRef);
+    console.warn('⚠️ getSpecificRemoteDay() est déprécié. Utilisez teleworkServiceV2.getUserOverrides()');
 
-      if (docSnap.exists()) {
-        return {
-          userId,
-          ...docSnap.data()
-        } as RemoteWorkDay;
-      }
+    const startDate = new Date(date);
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(date);
+    endDate.setHours(23, 59, 59, 999);
 
-      return null;
-    } catch (error) {
-      console.error('Erreur lors de la récupération du jour de télétravail:', error);
-      return null;
-    }
+    const overrides = await teleworkServiceV2.getUserOverrides(userId, startDate, endDate);
+    const override = overrides.find(o => {
+      const overrideDate = typeof o.date === 'string' ? new Date(o.date) : o.date;
+      return overrideDate.toDateString() === date.toDateString();
+    });
+
+    if (!override) return null;
+
+    return {
+      userId,
+      date,
+      isRemote: override.mode === 'remote',
+      note: override.reason,
+      createdAt: override.createdAt ? new Date(override.createdAt) : new Date(),
+      createdBy: override.createdBy
+    };
   }
 
   /**
-   * Supprime une journée spécifique de télétravail (exception ponctuelle)
+   * @deprecated Utiliser teleworkServiceV2.deleteOverride() à la place
    */
   async deleteSpecificRemoteDay(userId: string, date: Date): Promise<void> {
-    try {
-      // Format local pour éviter les problèmes de timezone
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      const dateStr = `${year}-${month}-${day}`;
-      const docId = `${userId}_${dateStr}`;
+    console.warn('⚠️ deleteSpecificRemoteDay() est déprécié. Utilisez teleworkServiceV2.deleteOverride()');
 
-      console.log('🔥 FIREBASE DELETE - Tentative de suppression:', {
-        collection: this.DAYS_COLLECTION,
-        docId,
-        userId,
-        date: dateStr
-      });
-
-      const docRef = doc(db, this.DAYS_COLLECTION, docId);
-
-      // Vérifier si le document existe avant suppression
-      const docSnap = await getDoc(docRef);
-      console.log('🔍 Document existe avant suppression:', docSnap.exists());
-
-      await deleteDoc(docRef);
-
-      // Vérifier si le document a été supprimé
-      const docSnapAfter = await getDoc(docRef);
-      console.log('✅ Document supprimé avec succès:', !docSnapAfter.exists());
-
-    } catch (error) {
-      console.error('❌ Erreur lors de la suppression du jour de télétravail:', error);
-      throw error;
+    // Trouver l'override correspondant
+    const remoteDay = await this.getSpecificRemoteDay(userId, date);
+    if (!remoteDay) {
+      console.warn('Aucun override trouvé pour cette date');
+      return;
     }
+
+    // Générer l'ID de l'override (format utilisé par Telework)
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const overrideId = `${userId}_${year}-${month}-${day}`;
+
+    await teleworkServiceV2.deleteOverride(overrideId);
   }
 
   /**
-   * Récupère tous les utilisateurs en télétravail pour une date donnée
+   * @deprecated Fonctionnalité non implémentée
    */
   async getRemoteUsersForDate(date: Date): Promise<string[]> {
-    try {
-      // Cette méthode nécessiterait une query Firestore plus complexe
-      // Pour l'instant, on retourne un tableau vide
-      // À implémenter selon les besoins
-      return [];
-    } catch (error) {
-      console.error('Erreur lors de la récupération des utilisateurs en télétravail:', error);
-      return [];
-    }
+    console.warn('⚠️ getRemoteUsersForDate() est déprécié et non implémenté.');
+    return [];
   }
 }
 

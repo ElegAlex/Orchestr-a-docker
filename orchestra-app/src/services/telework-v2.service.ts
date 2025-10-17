@@ -471,6 +471,164 @@ class TeleworkServiceV2 {
 
     return profile;
   }
+
+  // =============================================
+  // ADAPTATEURS COMPATIBILITÉ REMOTE-WORK
+  // (pour migration depuis remote-work.service.ts)
+  // =============================================
+
+  /**
+   * Récupère le planning simple (format Remote-Work compatible)
+   * Convertit le profil Telework en format boolean simple
+   */
+  async getSimpleRemoteSchedule(userId: string): Promise<{
+    userId: string;
+    monday: boolean;
+    tuesday: boolean;
+    wednesday: boolean;
+    thursday: boolean;
+    friday: boolean;
+    saturday: boolean;
+    sunday: boolean;
+    updatedAt: Date;
+    updatedBy: string;
+  } | null> {
+    const profile = await this.getUserProfile(userId);
+    if (!profile) return null;
+
+    // Convertir le pattern Telework en booleans simples
+    const weeklyPattern = profile.weeklyPattern;
+    return {
+      userId,
+      monday: weeklyPattern.monday === 'remote',
+      tuesday: weeklyPattern.tuesday === 'remote',
+      wednesday: weeklyPattern.wednesday === 'remote',
+      thursday: weeklyPattern.thursday === 'remote',
+      friday: weeklyPattern.friday === 'remote',
+      saturday: weeklyPattern.saturday === 'remote',
+      sunday: weeklyPattern.sunday === 'remote',
+      updatedAt: profile.updatedAt ? new Date(profile.updatedAt) : new Date(),
+      updatedBy: profile.updatedBy || userId
+    };
+  }
+
+  /**
+   * Met à jour le planning simple (format Remote-Work compatible)
+   */
+  async updateSimpleRemoteSchedule(
+    userId: string,
+    schedule: {
+      monday?: boolean;
+      tuesday?: boolean;
+      wednesday?: boolean;
+      thursday?: boolean;
+      friday?: boolean;
+      saturday?: boolean;
+      sunday?: boolean;
+    },
+    updatedBy: string
+  ): Promise<void> {
+    // Convertir booleans en modes Telework
+    const weeklyPatternUpdate: any = {};
+
+    const days: Array<keyof typeof schedule> = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+    days.forEach(day => {
+      if (schedule[day] !== undefined) {
+        weeklyPatternUpdate[day] = schedule[day] ? 'remote' : 'office';
+      }
+    });
+
+    // Si le profil n'existe pas, le créer
+    let profile = await this.getUserProfile(userId);
+    if (!profile) {
+      profile = await this.createDefaultProfile(userId, 'User', updatedBy);
+    }
+
+    await this.updateUserProfile(userId, { weeklyPattern: weeklyPatternUpdate }, updatedBy);
+  }
+
+  /**
+   * Vérifie si un utilisateur est en télétravail (format Remote-Work compatible)
+   */
+  async isUserRemoteOnDate(userId: string, date: Date): Promise<boolean> {
+    const profile = await this.getUserProfile(userId);
+    if (!profile) return false;
+
+    // Vérifier s'il y a une exception (override) pour ce jour
+    const startDate = new Date(date);
+    startDate.setHours(0, 0, 0, 0);
+    const endDate = new Date(date);
+    endDate.setHours(23, 59, 59, 999);
+
+    const overrides = await this.getUserOverrides(userId, startDate, endDate);
+    const override = overrides.find(o => {
+      const overrideDate = typeof o.date === 'string' ? new Date(o.date) : o.date;
+      return overrideDate.toDateString() === date.toDateString() && o.approvalStatus === 'approved';
+    });
+
+    if (override) {
+      return override.mode === 'remote';
+    }
+
+    // Sinon, vérifier le planning hebdomadaire
+    const dayOfWeek = date.getDay();
+    const dayMapping: Record<number, keyof typeof profile.weeklyPattern> = {
+      0: 'sunday',
+      1: 'monday',
+      2: 'tuesday',
+      3: 'wednesday',
+      4: 'thursday',
+      5: 'friday',
+      6: 'saturday'
+    };
+
+    const dayKey = dayMapping[dayOfWeek];
+    return profile.weeklyPattern[dayKey] === 'remote';
+  }
+
+  /**
+   * Calcule des statistiques simples de télétravail (format Remote-Work compatible)
+   */
+  async getSimpleRemoteWorkStats(
+    userId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<{
+    totalDays: number;
+    remoteDays: number;
+    officeDays: number;
+    remotePercentage: number;
+  }> {
+    let remoteDays = 0;
+    let officeDays = 0;
+    let totalDays = 0;
+
+    const current = new Date(startDate);
+    while (current <= endDate) {
+      // Exclure les weekends
+      if (current.getDay() !== 0 && current.getDay() !== 6) {
+        totalDays++;
+
+        const isRemote = await this.isUserRemoteOnDate(userId, current);
+        if (isRemote) {
+          remoteDays++;
+        } else {
+          officeDays++;
+        }
+      }
+
+      current.setDate(current.getDate() + 1);
+    }
+
+    const remotePercentage = totalDays > 0 ? Math.round((remoteDays / totalDays) * 100) : 0;
+
+    return {
+      totalDays,
+      remoteDays,
+      officeDays,
+      remotePercentage
+    };
+  }
 }
 
 export const teleworkServiceV2 = new TeleworkServiceV2();

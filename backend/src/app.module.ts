@@ -30,6 +30,7 @@ import { SkillsModule } from './skills/skills.module';
 import { ReportsModule } from './reports/reports.module';
 import { TeleworkModule } from './telework/telework.module';
 import { ServicesModule } from './services/services.module';
+import { UserServiceAssignmentsModule } from './user-service-assignments/user-service-assignments.module';
 
 @Module({
   imports: [
@@ -94,6 +95,8 @@ import { ServicesModule } from './services/services.module';
     ReportsModule,
     // Module de gestion des services métier
     ServicesModule,
+    // Module de gestion des assignations utilisateurs-services
+    UserServiceAssignmentsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

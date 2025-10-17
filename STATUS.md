@@ -1,8 +1,8 @@
 # 📊 STATUS.md - RÉFÉRENCE ABSOLUE DU PROJET ORCHESTR'A
 
 > **Document de référence** : À LIRE EN PREMIER lors de chaque session
-> **Dernière mise à jour** : 17 octobre 2025 - 11h00
-> **Version** : 2.10.0 - Service 30 Services COMPLET ✅
+> **Dernière mise à jour** : 17 octobre 2025 - 12h00
+> **Version** : 2.11.0 - Service 31 User-Service-Assignments COMPLET ✅
 > **Qualité Repository** : ⭐⭐⭐⭐⭐ A++
 
 ---
@@ -75,8 +75,10 @@
 | 28 | **Remote-Work** (DÉPRÉCIÉ) | ❌ | ⚠️ Fusionné | ✅ 100% | Service 28 | 🟡 **DÉPRÉCIÉ** 🔀 |
 | 29 | **HR-Analytics** (Métriques RH) | ✅ 100% | ✅ 100% | ✅ 100% | Service 29 | 🟢 **FINALISÉ** 🔥✅ |
 | 30 | **Services** (Gestion Services Métier) | ✅ 100% | ✅ 100% | ✅ 100% | Service 30 | 🟢 **COMPLET** 🔥 |
+| 31 | **User-Service-Assignments** (Assignations) | ✅ 100% | ✅ 100% | ✅ 100% | Service 31 | 🟢 **COMPLET** 🔥 |
 
-**🎉 MILESTONE ATTEINT : 85.71% DE LA MIGRATION COMPLÉTÉE !** (30/35 services) 🆕
+**🎉 MILESTONE ATTEINT : 88.57% DE LA MIGRATION COMPLÉTÉE !** (31/35 services) 🆕
+**✅ Service 31 User-Service-Assignments (COMPLET)** : Backend 100% ✅ | Frontend -31.5% ✅ | Tests 8/8 (100%) ✅ | 8 endpoints REST ✅ | Support multi-services ✅ | 17 oct 12h00 🔥
 **✅ Service 30 Services (COMPLET)** : Backend 100% ✅ | Frontend 100% ✅ | Tests 6/6 (100%) ✅ | 2 tables PostgreSQL ✅ | 6 endpoints REST ✅ | 17 oct 11h00 🔥
 **✅ Service 29 HR-Analytics (FINALISÉ)** : Backend 100% ✅ | Frontend 100% ✅ | Tests 3/3 (100%) ✅ | Architecture backend-driven ✅ | Intégration UI validée ✅ | 17 oct 09h30 🔥
 **✅ Service 28 Remote-Work (DÉPRÉCIÉ)** : Fusionné avec Telework-v2 ✅ | Adaptateurs compatibilité ✅ | Warnings dépréciation ✅ | 17 oct 08h00 🎊

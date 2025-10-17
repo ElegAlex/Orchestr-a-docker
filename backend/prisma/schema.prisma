@@ -148,6 +148,7 @@ model User {
   reports             Report[]
   managedServices     OrganizationService[] @relation("ServiceManager")
   serviceAssignments  UserServiceAssignment[]
+  sessions            Session[]
 
   @@map("users")
   @@index([email])
@@ -1414,4 +1415,34 @@ model UserServiceAssignment {
   @@index([userId])
   @@index([serviceId])
   @@index([isActive])
+}
+
+// ==========================================
+// SESSION - Gestion des Sessions Utilisateurs (Audit Logging)
+// ==========================================
+
+model Session {
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Session metadata
+  userAgent      String?   @map("user_agent") @db.Text
+  ipAddress      String?   @map("ip_address")
+  deviceInfo     Json?     @map("device_info") // { browser, os, device, isMobile }
+
+  // Session timing
+  lastActivityAt DateTime  @map("last_activity_at")
+  expiresAt      DateTime  @map("expires_at")
+  isActive       Boolean   @default(true) @map("is_active")
+
+  // Timestamps
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@map("sessions")
+  @@index([userId])
+  @@index([isActive])
+  @@index([expiresAt])
+  @@index([lastActivityAt])
 }

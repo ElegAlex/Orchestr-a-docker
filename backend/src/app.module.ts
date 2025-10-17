@@ -31,6 +31,7 @@ import { ReportsModule } from './reports/reports.module';
 import { TeleworkModule } from './telework/telework.module';
 import { ServicesModule } from './services/services.module';
 import { UserServiceAssignmentsModule } from './user-service-assignments/user-service-assignments.module';
+import { SessionsModule } from './sessions/sessions.module';
 
 @Module({
   imports: [
@@ -97,6 +98,8 @@ import { UserServiceAssignmentsModule } from './user-service-assignments/user-se
     ServicesModule,
     // Module de gestion des assignations utilisateurs-services
     UserServiceAssignmentsModule,
+    // Module de gestion des sessions utilisateurs (audit logging)
+    SessionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

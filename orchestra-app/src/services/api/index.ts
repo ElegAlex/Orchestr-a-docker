@@ -84,6 +84,11 @@ export type {
   ActivityStats,
 } from './activities.api';
 
+export { leavesAPI } from './leaves.api';
+export type {
+  Leave,
+} from './leaves.api';
+
 export { schoolHolidaysAPI } from './schoolHolidays.api';
 export type {
   SchoolHoliday,
@@ -115,6 +120,36 @@ export type {
   EmailTestResult,
 } from './settings.api';
 
+export { webhooksAPI } from './webhooks.api';
+export type {
+  Webhook,
+  WebhookEvent,
+  WebhookStatus,
+  WebhookLog,
+  CreateWebhookRequest,
+  UpdateWebhookRequest,
+  WebhookStats,
+} from './webhooks.api';
+
+export { notificationsAPI } from './notifications.api';
+export type {
+  Notification,
+  NotificationType,
+  CreateNotificationRequest,
+  NotificationFilters,
+} from './notifications.api';
+
+export { analyticsApi } from './analytics.api';
+export type {
+  GlobalKPIs,
+  ProjectMetrics,
+  ResourceMetrics,
+  AnalyticsReport,
+  AnalyticsPeriod,
+  GenerateReportDto,
+  AnalyticsFilterDto,
+} from './analytics.api';
+
 export { capacityApi } from './capacity.api';
 export type {
   ContractType,
@@ -132,3 +167,61 @@ export type {
   CreateAllocationDto,
   UpdateAllocationDto,
 } from './capacity.api';
+
+export { skillsAPI } from './skills.api';
+export type {
+  Skill,
+  SkillCategory,
+  SkillLevel,
+  UserSkill,
+  TaskSkill,
+  CreateSkillRequest,
+  UpdateSkillRequest,
+  CreateUserSkillRequest,
+  UpdateUserSkillRequest,
+  CreateTaskSkillRequest,
+  UpdateTaskSkillRequest,
+  SkillMetrics,
+  TopDemandSkill,
+  ShortageSkill,
+  PersonRecommendation,
+  CategoryWithSkills,
+  InitializeSkillsResponse,
+} from './skills.api';
+
+export { reportsAPI } from './reports.api';
+export type {
+  Report,
+  ReportType,
+  ExportFormat,
+  ReportStatus,
+  ReportTemplate,
+  CreateReportRequest,
+  UpdateReportRequest,
+  GetReportsParams,
+  CleanupResult,
+} from './reports.api';
+
+export { teleworkAPI } from './telework.api';
+export type {
+  TeleworkMode,
+  ApprovalStatus,
+  WeeklyPattern,
+  ProfileConstraints,
+  UserTeleworkProfile,
+  TeleworkOverride,
+  WeeklyRecurrence,
+  Recurrence,
+  TeamTeleworkRule,
+  TeleworkConflict,
+  ValidationResult,
+  CreateUserTeleworkProfileRequest,
+  UpdateUserTeleworkProfileRequest,
+  CreateTeleworkOverrideRequest,
+  UpdateTeleworkOverrideRequest,
+  ApproveTeleworkOverrideRequest,
+  CreateTeamTeleworkRuleRequest,
+  UpdateTeamTeleworkRuleRequest,
+  GetOverridesQueryParams,
+  ValidateOverrideRequest,
+} from './telework.api';

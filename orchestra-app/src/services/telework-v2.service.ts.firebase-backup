@@ -1,4 +1,19 @@
-import { teleworkAPI } from './api/telework.api';
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
+  orderBy,
+  Timestamp,
+  writeBatch,
+  DocumentSnapshot
+} from 'firebase/firestore';
+import { db } from '../config/firebase';
 import {
   UserTeleworkProfile,
   TeleworkOverride,
@@ -13,6 +28,11 @@ import {
 } from '../types/telework.types';
 
 class TeleworkServiceV2 {
+  private readonly PROFILES_COLLECTION = 'userTeleworkProfiles';
+  private readonly OVERRIDES_COLLECTION = 'teleworkOverrides';
+  private readonly TEAM_RULES_COLLECTION = 'teamTeleworkRules';
+  private readonly CONFIG_COLLECTION = 'teleworkSystemConfig';
+
   // =============================================
   // GESTION DES PROFILS UTILISATEUR
   // =============================================
@@ -21,10 +41,11 @@ class TeleworkServiceV2 {
    * Créer un profil télétravail par défaut pour un utilisateur
    */
   async createDefaultProfile(userId: string, displayName: string, createdBy: string): Promise<UserTeleworkProfile> {
-    const profileData = {
+    const profile: UserTeleworkProfile = {
+      id: userId,
       userId,
       displayName,
-      defaultMode: 'office' as TeleworkMode,
+      defaultMode: 'office',
       weeklyPattern: {
         monday: 'default',
         tuesday: 'default',
@@ -40,10 +61,14 @@ class TeleworkServiceV2 {
         requiresApproval: false
       },
       isActive: true,
-      createdBy
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+      createdBy,
+      updatedBy: createdBy
     };
 
-    return await teleworkAPI.createProfile(profileData);
+    await setDoc(doc(db, this.PROFILES_COLLECTION, userId), profile);
+    return profile;
   }
 
   /**
@@ -51,8 +76,16 @@ class TeleworkServiceV2 {
    */
   async getUserProfile(userId: string): Promise<UserTeleworkProfile | null> {
     try {
-      const profile = await teleworkAPI.getUserProfile(userId);
-      return profile;
+      const docSnap = await getDoc(doc(db, this.PROFILES_COLLECTION, userId));
+
+      if (docSnap.exists()) {
+        return {
+          id: docSnap.id,
+          ...docSnap.data()
+        } as UserTeleworkProfile;
+      }
+
+      return null;
     } catch (error) {
       console.error('Erreur lors de la récupération du profil:', error);
       return null;
@@ -68,8 +101,11 @@ class TeleworkServiceV2 {
     updatedBy: string
   ): Promise<void> {
     try {
-      await teleworkAPI.updateProfile(userId, {
+      const docRef = doc(db, this.PROFILES_COLLECTION, userId);
+
+      await updateDoc(docRef, {
         ...updates,
+        updatedAt: Timestamp.now(),
         updatedBy
       });
     } catch (error) {
@@ -83,7 +119,17 @@ class TeleworkServiceV2 {
    */
   async getAllProfiles(): Promise<UserTeleworkProfile[]> {
     try {
-      return await teleworkAPI.getAllProfiles();
+      const q = query(
+        collection(db, this.PROFILES_COLLECTION),
+        where('isActive', '==', true),
+        orderBy('displayName')
+      );
+
+      const querySnapshot = await getDocs(q);
+      return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as UserTeleworkProfile[];
     } catch (error) {
       console.error('Erreur lors de la récupération des profils:', error);
       return [];
@@ -97,9 +143,30 @@ class TeleworkServiceV2 {
     if (userIds.length === 0) return [];
 
     try {
-      // L'API backend gère automatiquement les chunks si nécessaire
-      const profiles = await teleworkAPI.getUserProfilesByIds(userIds);
-      return profiles;
+      // Firestore limite les requêtes "in" à 10 éléments
+      const chunks = [];
+      for (let i = 0; i < userIds.length; i += 10) {
+        chunks.push(userIds.slice(i, i + 10));
+      }
+
+      const allProfiles: UserTeleworkProfile[] = [];
+
+      for (const chunk of chunks) {
+        const q = query(
+          collection(db, this.PROFILES_COLLECTION),
+          where('userId', 'in', chunk)
+        );
+
+        const querySnapshot = await getDocs(q);
+        const profiles = querySnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        })) as UserTeleworkProfile[];
+
+        allProfiles.push(...profiles);
+      }
+
+      return allProfiles;
     } catch (error) {
       console.error('Erreur lors de la récupération des profils par IDs:', error);
       return [];
@@ -115,27 +182,32 @@ class TeleworkServiceV2 {
    */
   async requestOverride(override: Omit<TeleworkOverride, 'id' | 'createdAt' | 'approvalStatus'>): Promise<string> {
     try {
+      const overrideId = this.generateOverrideId(override.userId, override.date.toDate());
+      const docRef = doc(db, this.OVERRIDES_COLLECTION, overrideId);
+
       // Validation avant création
-      const validation = await this.validateOverrideRequest(
-        override.userId,
-        typeof override.date === 'string' ? new Date(override.date) : override.date,
-        override.mode
-      );
+      const validation = await this.validateOverrideRequest(override.userId, override.date.toDate(), override.mode);
 
-      const overrideData: any = {
-        userId: override.userId,
-        date: typeof override.date === 'string' ? override.date : override.date.toISOString().split('T')[0],
-        mode: override.mode,
-        createdBy: override.createdBy
-      };
-
-      // Ajouter reason seulement s'il est défini
-      if (override.reason !== undefined) {
-        overrideData.reason = override.reason;
+      const cleanOverride = { ...override };
+      if (cleanOverride.reason === undefined) {
+        delete cleanOverride.reason;
       }
 
-      const result = await teleworkAPI.createOverride(overrideData);
-      return result.id;
+      const newOverride: TeleworkOverride = {
+        ...cleanOverride,
+        id: overrideId,
+        approvalStatus: validation.requiresApproval ? 'pending' : 'approved',
+        createdAt: Timestamp.now()
+      };
+
+      // Si pas besoin d'approbation, approuver automatiquement
+      if (!validation.requiresApproval) {
+        newOverride.approvedBy = override.createdBy;
+        newOverride.approvedAt = Timestamp.now();
+      }
+
+      await setDoc(docRef, newOverride);
+      return overrideId;
     } catch (error) {
       console.error('Erreur lors de la création de l\'exception:', error);
       throw error;
@@ -147,9 +219,15 @@ class TeleworkServiceV2 {
    */
   async approveOverride(overrideId: string, approvedBy: string, reason?: string): Promise<void> {
     try {
-      await teleworkAPI.approveOverride(overrideId, {
+      const docRef = doc(db, this.OVERRIDES_COLLECTION, overrideId);
+
+      await updateDoc(docRef, {
+        approvalStatus: 'approved',
         approvedBy,
-        reason
+        approvedAt: Timestamp.now(),
+        rejectionReason: reason || null,
+        updatedAt: Timestamp.now(),
+        updatedBy: approvedBy
       });
     } catch (error) {
       console.error('Erreur lors de l\'approbation:', error);
@@ -162,9 +240,15 @@ class TeleworkServiceV2 {
    */
   async rejectOverride(overrideId: string, rejectedBy: string, reason: string): Promise<void> {
     try {
-      await teleworkAPI.rejectOverride(overrideId, {
-        rejectedBy,
-        reason
+      const docRef = doc(db, this.OVERRIDES_COLLECTION, overrideId);
+
+      await updateDoc(docRef, {
+        approvalStatus: 'rejected',
+        approvedBy: rejectedBy,
+        approvedAt: Timestamp.now(),
+        rejectionReason: reason,
+        updatedAt: Timestamp.now(),
+        updatedBy: rejectedBy
       });
     } catch (error) {
       console.error('Erreur lors du rejet:', error);
@@ -177,7 +261,7 @@ class TeleworkServiceV2 {
    */
   async deleteOverride(overrideId: string): Promise<void> {
     try {
-      await teleworkAPI.deleteOverride(overrideId);
+      await deleteDoc(doc(db, this.OVERRIDES_COLLECTION, overrideId));
     } catch (error) {
       console.error('Erreur lors de la suppression:', error);
       throw error;
@@ -193,12 +277,19 @@ class TeleworkServiceV2 {
     endDate: Date
   ): Promise<TeleworkOverride[]> {
     try {
-      const overrides = await teleworkAPI.getUserOverrides(
-        userId,
-        startDate.toISOString().split('T')[0],
-        endDate.toISOString().split('T')[0]
+      const q = query(
+        collection(db, this.OVERRIDES_COLLECTION),
+        where('userId', '==', userId),
+        where('date', '>=', Timestamp.fromDate(startDate)),
+        where('date', '<=', Timestamp.fromDate(endDate)),
+        orderBy('date')
       );
-      return overrides;
+
+      const querySnapshot = await getDocs(q);
+      return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as TeleworkOverride[];
     } catch (error) {
       console.error('Erreur lors de la récupération des exceptions:', error);
       return [];
@@ -210,9 +301,19 @@ class TeleworkServiceV2 {
    */
   async getPendingOverrides(approverId?: string): Promise<TeleworkOverride[]> {
     try {
-      const overrides = await teleworkAPI.getPendingOverrides();
+      const q = query(
+        collection(db, this.OVERRIDES_COLLECTION),
+        where('approvalStatus', '==', 'pending'),
+        orderBy('createdAt', 'desc')
+      );
 
-      // Filtrer par approbateur si spécifié (logique client-side)
+      const querySnapshot = await getDocs(q);
+      const overrides = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as TeleworkOverride[];
+
+      // Filtrer par approbateur si spécifié
       if (approverId) {
         // Logique pour déterminer qui peut approuver (manager, RH, admin)
         // Pour l'instant, retourner toutes les demandes
@@ -234,8 +335,15 @@ class TeleworkServiceV2 {
    */
   async createTeamRule(rule: Omit<TeamTeleworkRule, 'id' | 'createdAt'>): Promise<string> {
     try {
-      const result = await teleworkAPI.createTeamRule(rule);
-      return result.id;
+      const docRef = doc(collection(db, this.TEAM_RULES_COLLECTION));
+      const newRule: TeamTeleworkRule = {
+        ...rule,
+        id: docRef.id,
+        createdAt: Timestamp.now()
+      };
+
+      await setDoc(docRef, newRule);
+      return docRef.id;
     } catch (error) {
       console.error('Erreur lors de la création de la règle équipe:', error);
       throw error;
@@ -247,7 +355,17 @@ class TeleworkServiceV2 {
    */
   async getTeamRulesForUser(userId: string): Promise<TeamTeleworkRule[]> {
     try {
-      return await teleworkAPI.getUserTeamRules(userId);
+      const q = query(
+        collection(db, this.TEAM_RULES_COLLECTION),
+        where('isActive', '==', true),
+        where('affectedUserIds', 'array-contains', userId)
+      );
+
+      const querySnapshot = await getDocs(q);
+      return querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as TeamTeleworkRule[];
     } catch (error) {
       console.error('Erreur lors de la récupération des règles équipe:', error);
       return [];
@@ -255,12 +373,11 @@ class TeleworkServiceV2 {
   }
 
   // =============================================
-  // VALIDATION ET LOGIQUE MÉTIER (CLIENT-SIDE)
+  // VALIDATION ET LOGIQUE MÉTIER
   // =============================================
 
   /**
    * Valider une demande d'exception
-   * Cette validation reste côté client pour l'UI
    */
   async validateOverrideRequest(
     userId: string,
@@ -350,11 +467,11 @@ class TeleworkServiceV2 {
   }
 
   // =============================================
-  // UTILITAIRES (CLIENT-SIDE)
+  // UTILITAIRES
   // =============================================
 
   /**
-   * Générer un ID unique pour une exception (client-side)
+   * Générer un ID unique pour une exception
    */
   private generateOverrideId(userId: string, date: Date): string {
     const year = date.getFullYear();
@@ -379,10 +496,9 @@ class TeleworkServiceV2 {
 
       case 'specific_dates':
         if (rule.recurrence.specificDates) {
-          return rule.recurrence.specificDates.some(d => {
-            const ruleDate = typeof d === 'string' ? new Date(d) : d;
-            return ruleDate.toDateString() === date.toDateString();
-          });
+          return rule.recurrence.specificDates.some(d =>
+            d.toDateString() === date.toDateString()
+          );
         }
         break;
     }
@@ -412,11 +528,10 @@ class TeleworkServiceV2 {
       }
 
       // Vérifier s'il y a une exception pour ce jour
-      const override = overrides.find(o => {
-        const overrideDate = typeof o.date === 'string' ? new Date(o.date) : o.date;
-        return overrideDate.toDateString() === current.toDateString() &&
-               o.approvalStatus === 'approved';
-      });
+      const override = overrides.find(o =>
+        o.date.toDate().toDateString() === current.toDateString() &&
+        o.approvalStatus === 'approved'
+      );
 
       if (override && override.mode === 'remote') {
         count++;
@@ -452,11 +567,28 @@ class TeleworkServiceV2 {
 
   /**
    * Nettoyer les exceptions expirées
-   * Note: Cette opération est maintenant gérée automatiquement par le backend
    */
   async cleanupExpiredOverrides(): Promise<number> {
-    console.warn('cleanupExpiredOverrides: Cette opération est maintenant automatique côté backend');
-    return 0;
+    try {
+      const now = Timestamp.now();
+      const q = query(
+        collection(db, this.OVERRIDES_COLLECTION),
+        where('expiresAt', '<=', now)
+      );
+
+      const querySnapshot = await getDocs(q);
+      const batch = writeBatch(db);
+
+      querySnapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+
+      await batch.commit();
+      return querySnapshot.size;
+    } catch (error) {
+      console.error('Erreur lors du nettoyage:', error);
+      return 0;
+    }
   }
 
   /**

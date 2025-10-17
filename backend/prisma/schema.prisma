@@ -146,6 +146,8 @@ model User {
   userCapacities      UserCapacity[]
   userSkills          UserSkill[]
   reports             Report[]
+  managedServices     OrganizationService[] @relation("ServiceManager")
+  serviceAssignments  UserServiceAssignment[]
 
   @@map("users")
   @@index([email])
@@ -1357,4 +1359,59 @@ model Report {
   @@index([status])
   @@index([createdAt])
   @@index([expiresAt])
+}
+
+// ==========================================
+// SERVICE - Gestion des Services Métier
+// ==========================================
+
+model OrganizationService {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  color       String   @default("#3B82F6") // Couleur hex pour l'interface
+  manager     String?  // ID du manager (userId)
+  managedBy   User?    @relation("ServiceManager", fields: [manager], references: [id], onDelete: SetNull)
+  budget      Float?   @default(0)
+  isActive    Boolean  @default(true) @map("is_active")
+
+  // Relations
+  userAssignments UserServiceAssignment[]
+
+  // Timestamps
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("organization_services")
+  @@index([manager])
+  @@index([isActive])
+  @@index([name])
+}
+
+// ==========================================
+// USER SERVICE ASSIGNMENT - Assignation Utilisateurs ↔ Services
+// ==========================================
+
+model UserServiceAssignment {
+  id        String              @id @default(uuid())
+  userId    String              @map("user_id")
+  serviceId String              @map("service_id")
+
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  service   OrganizationService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  role      String?             // Rôle spécifique dans ce service
+  startDate DateTime?           @map("start_date")
+  endDate   DateTime?           @map("end_date")
+  isActive  Boolean             @default(true) @map("is_active")
+
+  // Timestamps
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+
+  @@unique([userId, serviceId])
+  @@map("user_service_assignments")
+  @@index([userId])
+  @@index([serviceId])
+  @@index([isActive])
 }

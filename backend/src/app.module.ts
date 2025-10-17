@@ -29,6 +29,7 @@ import { CapacityModule } from './capacity/capacity.module';
 import { SkillsModule } from './skills/skills.module';
 import { ReportsModule } from './reports/reports.module';
 import { TeleworkModule } from './telework/telework.module';
+import { ServicesModule } from './services/services.module';
 
 @Module({
   imports: [
@@ -91,6 +92,8 @@ import { TeleworkModule } from './telework/telework.module';
     SkillsModule,
     // Module de gestion des rapports et exports
     ReportsModule,
+    // Module de gestion des services métier
+    ServicesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

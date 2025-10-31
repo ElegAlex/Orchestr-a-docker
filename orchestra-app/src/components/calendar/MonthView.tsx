@@ -82,6 +82,33 @@ export const MonthView: React.FC<MonthViewProps> = ({
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [schoolHolidays, setSchoolHolidays] = useState<SchoolHoliday[]>([]);
 
+  // CORRECTION FONDAMENTALE: Agréger tous les items par userId pour la vue mois
+  // workloadDaysByService contient UserWorkloadDay[] où chaque élément = 1 jour
+  // Pour la vue mois, on doit combiner tous les jours d'un même utilisateur
+  const usersByService = React.useMemo(() => {
+    const result = new Map<string, Array<{ user: any; items: CalendarItem[] }>>();
+
+    workloadDaysByService.forEach((workloadDays, serviceId) => {
+      // Grouper par userId pour agréger tous les items du mois
+      const userItemsMap = new Map<string, { user: any; items: CalendarItem[] }>();
+
+      workloadDays.forEach((workloadDay) => {
+        if (!userItemsMap.has(workloadDay.userId)) {
+          userItemsMap.set(workloadDay.userId, {
+            user: workloadDay.user,
+            items: []
+          });
+        }
+        // Ajouter tous les items de ce jour
+        userItemsMap.get(workloadDay.userId)!.items.push(...workloadDay.items);
+      });
+
+      result.set(serviceId, Array.from(userItemsMap.values()));
+    });
+
+    return result;
+  }, [workloadDaysByService]);
+
   // Charger les jours fériés pour le mois affiché
   useEffect(() => {
     const loadHolidays = async () => {
@@ -224,13 +251,13 @@ export const MonthView: React.FC<MonthViewProps> = ({
 
         {/* Corps - Planning groupé par service */}
         <Stack spacing={1}>
-        {Array.from(workloadDaysByService.entries()).map(([serviceId, serviceWorkloadDays]) => {
+        {Array.from(usersByService.entries()).map(([serviceId, serviceUsers]) => {
           // Gestion spéciale pour "Encadrement"
           if (serviceId === 'encadrement') {
             const serviceName = 'Encadrement';
             const serviceColor = '#ff9800';
             const isExpanded = expandedServices.has(serviceId);
-            const userCount = serviceWorkloadDays.length;
+            const userCount = serviceUsers.length;
 
             return (
               <Box key={serviceId}>
@@ -278,19 +305,7 @@ export const MonthView: React.FC<MonthViewProps> = ({
                 <Collapse in={isExpanded}>
                   <Box sx={{ ml: 2, mb: 1 }}>
                     <Stack spacing={0.5}>
-                      {/* CORRECTION: Grouper par userId pour agréger tous les items du mois */}
-                      {Array.from(
-                        serviceWorkloadDays.reduce((userMap, workloadDay) => {
-                          if (!userMap.has(workloadDay.userId)) {
-                            userMap.set(workloadDay.userId, {
-                              user: workloadDay.user,
-                              items: []
-                            });
-                          }
-                          userMap.get(workloadDay.userId)!.items.push(...workloadDay.items);
-                          return userMap;
-                        }, new Map<string, { user: any, items: CalendarItem[] }>()).values()
-                      ).map(({ user, items }) => {
+                      {serviceUsers.map(({ user, items }) => {
                         // Grouper les items par tâche multi-jours
                         const taskBars = new Map<string, CalendarItem[]>();
                         const singleDayItems = new Map<string, CalendarItem[]>();
@@ -697,7 +712,7 @@ export const MonthView: React.FC<MonthViewProps> = ({
           if (!service) return null;
 
           const isExpanded = expandedServices.has(serviceId);
-          const userCount = serviceWorkloadDays.length;
+          const userCount = serviceUsers.length;
 
           const serviceColor = service.color || '#1976d2';
           // Convertir la couleur hex en RGB pour le gradient
@@ -757,19 +772,7 @@ export const MonthView: React.FC<MonthViewProps> = ({
               <Collapse in={isExpanded}>
                 <Box sx={{ ml: 2, mb: 1 }}>
                   <Stack spacing={0.5}>
-                    {/* CORRECTION: Grouper par userId pour agréger tous les items du mois */}
-                    {Array.from(
-                      serviceWorkloadDays.reduce((userMap, workloadDay) => {
-                        if (!userMap.has(workloadDay.userId)) {
-                          userMap.set(workloadDay.userId, {
-                            user: workloadDay.user,
-                            items: []
-                          });
-                        }
-                        userMap.get(workloadDay.userId)!.items.push(...workloadDay.items);
-                        return userMap;
-                      }, new Map<string, { user: any, items: CalendarItem[] }>()).values()
-                    ).map(({ user, items }) => {
+                    {serviceUsers.map(({ user, items }) => {
                       // Grouper les items par tâche multi-jours
                       const taskBars = new Map<string, CalendarItem[]>();
                       const singleDayItems = new Map<string, CalendarItem[]>();

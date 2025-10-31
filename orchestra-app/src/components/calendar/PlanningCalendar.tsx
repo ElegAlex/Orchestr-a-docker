@@ -656,7 +656,7 @@ const UserRow: React.FC<UserRowProps> = ({
   };
 
   // Calculer le nombre max de tâches projet sur toute la semaine pour cet utilisateur
-  const maxProjectTasksCount = weekDays.reduce((max, date) => {
+  const maxProjectTasksCount = displayDays.reduce((max, date) => {
     const dayItems = workloadDay.items.filter(item => isSameDay(item.startTime, date));
     const projectTasks = dayItems.filter(item => item.type === 'task');
     return Math.max(max, projectTasks.length);

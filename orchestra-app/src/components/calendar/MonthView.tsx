@@ -278,7 +278,19 @@ export const MonthView: React.FC<MonthViewProps> = ({
                 <Collapse in={isExpanded}>
                   <Box sx={{ ml: 2, mb: 1 }}>
                     <Stack spacing={0.5}>
-                      {serviceWorkloadDays.map((workloadDay) => {
+                      {/* CORRECTION: Grouper par userId pour agréger tous les items du mois */}
+                      {Array.from(
+                        serviceWorkloadDays.reduce((userMap, workloadDay) => {
+                          if (!userMap.has(workloadDay.userId)) {
+                            userMap.set(workloadDay.userId, {
+                              user: workloadDay.user,
+                              items: []
+                            });
+                          }
+                          userMap.get(workloadDay.userId)!.items.push(...workloadDay.items);
+                          return userMap;
+                        }, new Map<string, { user: any, items: CalendarItem[] }>()).values()
+                      ).map(({ user, items }) => {
                         // Grouper les items par tâche multi-jours
                         const taskBars = new Map<string, CalendarItem[]>();
                         const singleDayItems = new Map<string, CalendarItem[]>();
@@ -286,7 +298,7 @@ export const MonthView: React.FC<MonthViewProps> = ({
                         // Filtrer les congés
                         const leavesMap = new Map<string, CalendarItem[]>();
 
-                        workloadDay.items.forEach(item => {
+                        items.forEach(item => {
                           // Séparer les congés
                           if (item.type === 'leave') {
                             const dayKey = format(item.startTime, 'yyyy-MM-dd');
@@ -317,20 +329,20 @@ export const MonthView: React.FC<MonthViewProps> = ({
                           : Math.max(48, totalBars * 22 + 16);
 
                         return (
-                          <Box key={workloadDay.userId} sx={{ mb: 1, pb: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+                          <Box key={user.id} sx={{ mb: 1, pb: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
                             <Box sx={{ display: "flex", alignItems: "center" }}>
                                 {/* Colonne utilisateur (220px fixe) */}
                                 <Box sx={{ width: 220, minWidth: 220, maxWidth: 220, flexShrink: 0, mr: 1 }}>
                                   <Stack direction="row" alignItems="center" spacing={1}>
                                     <Avatar
-                                      src={workloadDay.user.avatarUrl}
+                                      src={user.avatarUrl}
                                       sx={{ width: 32, height: 32 }}
                                     >
-                                      {workloadDay.user.firstName?.[0]}{workloadDay.user.lastName?.[0]}
+                                      {user.firstName?.[0]}{user.lastName?.[0]}
                                     </Avatar>
                                     <Box flexGrow={1} minWidth={0}>
                                       <Typography variant="body2" fontWeight="bold" noWrap>
-                                        {getUserDisplayName(workloadDay.user)}
+                                        {getUserDisplayName(user)}
                                       </Typography>
                                     </Box>
                                   </Stack>
@@ -343,7 +355,7 @@ export const MonthView: React.FC<MonthViewProps> = ({
                                     {monthDays.map((day, dayIndex) => {
                                       const dayOfWeek = day.getDay();
                                       const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-                                      const teleworkResolution = teleworkSystem.getResolutionForDay(workloadDay.userId, day);
+                                      const teleworkResolution = teleworkSystem.getResolutionForDay(user.id, day);
                                       const isRemoteDay = teleworkResolution?.resolvedMode === 'remote';
 
                                       const dayIsHoliday = isHoliday(day);
@@ -745,7 +757,19 @@ export const MonthView: React.FC<MonthViewProps> = ({
               <Collapse in={isExpanded}>
                 <Box sx={{ ml: 2, mb: 1 }}>
                   <Stack spacing={0.5}>
-                    {serviceWorkloadDays.map((workloadDay) => {
+                    {/* CORRECTION: Grouper par userId pour agréger tous les items du mois */}
+                    {Array.from(
+                      serviceWorkloadDays.reduce((userMap, workloadDay) => {
+                        if (!userMap.has(workloadDay.userId)) {
+                          userMap.set(workloadDay.userId, {
+                            user: workloadDay.user,
+                            items: []
+                          });
+                        }
+                        userMap.get(workloadDay.userId)!.items.push(...workloadDay.items);
+                        return userMap;
+                      }, new Map<string, { user: any, items: CalendarItem[] }>()).values()
+                    ).map(({ user, items }) => {
                       // Grouper les items par tâche multi-jours
                       const taskBars = new Map<string, CalendarItem[]>();
                       const singleDayItems = new Map<string, CalendarItem[]>();
@@ -753,7 +777,7 @@ export const MonthView: React.FC<MonthViewProps> = ({
                       // Filtrer les congés
                       const leavesMap = new Map<string, CalendarItem[]>();
 
-                      workloadDay.items.forEach(item => {
+                      items.forEach(item => {
                         // Séparer les congés
                         if (item.type === 'leave') {
                           const dayKey = format(item.startTime, 'yyyy-MM-dd');
@@ -784,20 +808,20 @@ export const MonthView: React.FC<MonthViewProps> = ({
                         : Math.max(48, totalBars * 22 + 16);
 
                       return (
-                        <Box key={workloadDay.userId} sx={{ mb: 1, pb: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
+                        <Box key={user.id} sx={{ mb: 1, pb: 1, borderBottom: '1px solid', borderColor: 'divider' }}>
                           <Box sx={{ display: "flex", alignItems: "center" }}>
                               {/* Colonne utilisateur (220px fixe) */}
                               <Box sx={{ width: 220, minWidth: 220, maxWidth: 220, flexShrink: 0, mr: 1 }}>
                                 <Stack direction="row" alignItems="center" spacing={1}>
                                   <Avatar
-                                    src={workloadDay.user.avatarUrl}
+                                    src={user.avatarUrl}
                                     sx={{ width: 32, height: 32 }}
                                   >
-                                    {workloadDay.user.firstName?.[0]}{workloadDay.user.lastName?.[0]}
+                                    {user.firstName?.[0]}{user.lastName?.[0]}
                                   </Avatar>
                                   <Box flexGrow={1} minWidth={0}>
                                     <Typography variant="body2" fontWeight="bold" noWrap>
-                                      {getUserDisplayName(workloadDay.user)}
+                                      {getUserDisplayName(user)}
                                     </Typography>
                                   </Box>
                                 </Stack>
@@ -810,7 +834,7 @@ export const MonthView: React.FC<MonthViewProps> = ({
                                   {monthDays.map((day, dayIndex) => {
                                     const dayOfWeek = day.getDay();
                                     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-                                    const teleworkResolution = teleworkSystem.getResolutionForDay(workloadDay.userId, day);
+                                    const teleworkResolution = teleworkSystem.getResolutionForDay(user.id, day);
                                     const isRemoteDay = teleworkResolution?.resolvedMode === 'remote';
                                     const dayIsHoliday = isHoliday(day);
                                     const isWeekendOrHoliday = isWeekend || dayIsHoliday;

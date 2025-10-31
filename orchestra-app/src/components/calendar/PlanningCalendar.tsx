@@ -55,6 +55,7 @@ import {
   subMonths,
   startOfMonth,
   endOfMonth,
+  endOfDay,
   isSameDay,
   isToday,
   getHours,

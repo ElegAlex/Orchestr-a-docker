@@ -124,6 +124,14 @@ const filterWorkingDays = (days: Date[], contracts: Map<string, WorkContract | n
   return days;
 };
 
+// Fonction pour filtrer les weekends (Samedi=6, Dimanche=0)
+const filterWeekends = (days: Date[]): Date[] => {
+  return days.filter(day => {
+    const dayOfWeek = day.getDay();
+    return dayOfWeek !== 0 && dayOfWeek !== 6; // Exclure Dimanche et Samedi
+  });
+};
+
 // ========================================
 // TYPES SPECIFIQUES PLANNING CALENDAR
 // ========================================
@@ -607,7 +615,7 @@ interface UserRowProps {
   workloadDay: UserWorkloadDay;
   viewMode: ViewMode;
   viewFilter: ViewFilter;
-  weekDays: Date[];
+  displayDays: Date[];
   departments: Department[];
   userContracts: Map<string, WorkContract | null>;
   currentUserId: string;
@@ -626,7 +634,7 @@ const UserRow: React.FC<UserRowProps> = ({
   workloadDay,
   viewMode,
   viewFilter,
-  weekDays,
+  displayDays,
   departments,
   userContracts,
   currentUserId,
@@ -932,7 +940,7 @@ const UserRow: React.FC<UserRowProps> = ({
 
             {/* Boutons télétravail avec le nouveau système */}
             <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
-              {weekDays.map((day) => {
+              {displayDays.map((day) => {
                 const resolution = teleworkSystem.getResolutionForDay(workloadDay.userId, day);
 
                 return (
@@ -993,7 +1001,7 @@ const UserRow: React.FC<UserRowProps> = ({
             overflowX: 'auto'
           }}>
             <Box sx={{ display: 'flex', gap: 0.5 }}>
-              {weekDays.map((day) => {
+              {displayDays.map((day) => {
                   // CORRECTION FINALE: Toujours afficher la colonne de planning
                   // Ne JAMAIS bloquer l'affichage avec "Non travaillé"
                   return renderDayColumn(day);
@@ -1091,6 +1099,17 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
     }
     return days;
   }, [currentDate]);
+
+  // Jours à afficher selon le mode de vue
+  const displayDays = useMemo(() => {
+    if (viewMode === 'week') {
+      // Vue hebdomadaire : afficher uniquement Lundi-Vendredi (filtrer weekends)
+      return filterWeekends(weekDays);
+    } else {
+      // Vue mensuelle : afficher tous les jours du mois
+      return monthDays;
+    }
+  }, [viewMode, weekDays, monthDays]);
 
   // Calculer la plage étendue pour le calendrier télétravail (période visible + marge)
   const teleworkDateRange = useMemo(() => {
@@ -2261,7 +2280,7 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
                   pb: 0
                 }}>
                   <Box sx={{ display: 'flex', gap: 0.5 }}>
-                    {weekDays.map((day) => (
+                    {displayDays.map((day) => (
                       <Box
                         key={day.toISOString()}
                         sx={{
@@ -2361,7 +2380,7 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
                               workloadDay={workloadDay}
                               viewMode={viewMode}
                               viewFilter={viewFilter}
-                              weekDays={weekDays}
+                              displayDays={displayDays}
                               departments={departments}
                               userContracts={userContracts}
                               currentUserId={auth?.currentUser?.uid || currentUser?.id || ''}
@@ -2444,7 +2463,7 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
                             workloadDay={workloadDay}
                             viewMode={viewMode}
                             viewFilter={viewFilter}
-                            weekDays={weekDays}
+                            displayDays={displayDays}
                             departments={departments}
                             userContracts={userContracts}
                             currentUserId={auth?.currentUser?.uid || currentUser?.id || ''}

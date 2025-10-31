@@ -1,22 +1,11 @@
-import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-  orderBy,
-  Timestamp,
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
-import { Holiday, HolidayType } from '../types';
+import { holidaysAPI } from './api/holidays.api';
+import { Holiday } from '../types';
 
+/**
+ * Service de gestion des jours fériés
+ * Migration complète vers API REST backend (17 oct 2025)
+ */
 class HolidayService {
-  private readonly HOLIDAYS_COLLECTION = 'holidays';
-
   // ========================================
   // CALCUL AUTOMATIQUE DES JOURS FÉRIÉS FRANÇAIS
   // ========================================
@@ -45,12 +34,14 @@ class HolidayService {
         date: new Date(year, holiday.month, holiday.day),
         type: 'FIXED',
         isNational: true,
+        regions: [],
+        isWorkingDay: false,
       });
     });
 
     // Calcul de Pâques (algorithme de Gauss)
     const easter = this.calculateEaster(year);
-    
+
     // Jours fériés basés sur Pâques
     const easterBasedHolidays = [
       { name: 'Lundi de Pâques', offset: 1 },
@@ -61,31 +52,29 @@ class HolidayService {
     easterBasedHolidays.forEach(holiday => {
       const date = new Date(easter);
       date.setDate(date.getDate() + holiday.offset);
-      
+
       holidays.push({
         name: holiday.name,
         date,
         type: 'CALCULATED',
         isNational: true,
+        regions: [],
+        isWorkingDay: false,
       });
     });
 
     // Jours fériés spécifiques à l'Alsace-Moselle
-    const alsaceMoselleHolidays = [
-      { name: 'Vendredi Saint', offset: -2, baseDate: easter },
-      { name: 'Saint-Étienne', month: 11, day: 26 },
-    ];
-
     // Vendredi Saint (2 jours avant Pâques)
     const goodFriday = new Date(easter);
     goodFriday.setDate(goodFriday.getDate() - 2);
-    
+
     holidays.push({
       name: 'Vendredi Saint',
       date: goodFriday,
       type: 'CALCULATED',
       isNational: false,
       regions: ['Alsace', 'Moselle'],
+      isWorkingDay: false,
     });
 
     // Saint-Étienne (26 décembre)
@@ -95,6 +84,7 @@ class HolidayService {
       type: 'FIXED',
       isNational: false,
       regions: ['Alsace', 'Moselle'],
+      isWorkingDay: false,
     });
 
     return holidays;
@@ -123,7 +113,7 @@ class HolidayService {
   }
 
   // ========================================
-  // CRUD OPERATIONS
+  // CRUD OPERATIONS - API REST
   // ========================================
 
   /**
@@ -131,27 +121,16 @@ class HolidayService {
    */
   async getHolidaysByYear(year: number): Promise<Holiday[]> {
     try {
-      const startDate = new Date(year, 0, 1);
-      const endDate = new Date(year, 11, 31);
-
-      const q = query(
-        collection(db, this.HOLIDAYS_COLLECTION),
-        where('date', '>=', Timestamp.fromDate(startDate)),
-        where('date', '<=', Timestamp.fromDate(endDate)),
-        orderBy('date', 'asc')
-      );
-
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        date: doc.data().date.toDate(),
-        createdAt: doc.data().createdAt.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-      })) as Holiday[];
+      const holidays = await holidaysAPI.getByYear(year);
+      return holidays.map(h => ({
+        ...h,
+        date: new Date(h.date),
+        createdAt: new Date(h.createdAt),
+        updatedAt: new Date(h.updatedAt),
+      }));
     } catch (error) {
       console.error('Erreur lors de la récupération des jours fériés:', error);
-      throw error;
+      return [];
     }
   }
 
@@ -160,24 +139,19 @@ class HolidayService {
    */
   async getHolidaysByPeriod(startDate: Date, endDate: Date): Promise<Holiday[]> {
     try {
-      const q = query(
-        collection(db, this.HOLIDAYS_COLLECTION),
-        where('date', '>=', Timestamp.fromDate(startDate)),
-        where('date', '<=', Timestamp.fromDate(endDate)),
-        orderBy('date', 'asc')
+      const holidays = await holidaysAPI.getByPeriod(
+        startDate.toISOString(),
+        endDate.toISOString()
       );
-
-      const snapshot = await getDocs(q);
-      return snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        date: doc.data().date.toDate(),
-        createdAt: doc.data().createdAt.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-      })) as Holiday[];
+      return holidays.map(h => ({
+        ...h,
+        date: new Date(h.date),
+        createdAt: new Date(h.createdAt),
+        updatedAt: new Date(h.updatedAt),
+      }));
     } catch (error) {
       console.error('Erreur lors de la récupération des jours fériés:', error);
-      throw error;
+      return [];
     }
   }
 
@@ -186,12 +160,15 @@ class HolidayService {
    */
   async addHoliday(holiday: Omit<Holiday, 'id' | 'createdAt' | 'updatedAt'>): Promise<string> {
     try {
-      const docRef = await addDoc(collection(db, this.HOLIDAYS_COLLECTION), {
-        ...holiday,
-        date: Timestamp.fromDate(holiday.date),
-        createdAt: Timestamp.fromDate(new Date()),
+      const created = await holidaysAPI.create({
+        name: holiday.name,
+        date: holiday.date.toISOString(),
+        type: holiday.type,
+        isNational: holiday.isNational,
+        regions: holiday.regions || [],
+        isWorkingDay: holiday.isWorkingDay || false,
       });
-      return docRef.id;
+      return created.id;
     } catch (error) {
       console.error('Erreur lors de l\'ajout du jour férié:', error);
       throw error;
@@ -203,11 +180,13 @@ class HolidayService {
    */
   async updateHoliday(holidayId: string, updates: Partial<Holiday>): Promise<void> {
     try {
-      const docRef = doc(db, this.HOLIDAYS_COLLECTION, holidayId);
-      await updateDoc(docRef, {
-        ...updates,
-        updatedAt: Timestamp.fromDate(new Date()),
-        ...(updates.date && { date: Timestamp.fromDate(updates.date) }),
+      await holidaysAPI.update(holidayId, {
+        name: updates.name,
+        date: updates.date?.toISOString(),
+        type: updates.type,
+        isNational: updates.isNational,
+        regions: updates.regions,
+        isWorkingDay: updates.isWorkingDay,
       });
     } catch (error) {
       console.error('Erreur lors de la mise à jour du jour férié:', error);
@@ -220,8 +199,7 @@ class HolidayService {
    */
   async deleteHoliday(holidayId: string): Promise<void> {
     try {
-      const docRef = doc(db, this.HOLIDAYS_COLLECTION, holidayId);
-      await deleteDoc(docRef);
+      await holidaysAPI.delete(holidayId);
     } catch (error) {
       console.error('Erreur lors de la suppression du jour férié:', error);
       throw error;
@@ -242,7 +220,7 @@ class HolidayService {
 
       // Générer et sauvegarder les jours fériés
       const holidays = this.generateFrenchHolidays(year);
-      
+
       const promises = holidays.map(holiday => this.addHoliday(holiday));
       await Promise.all(promises);
 
@@ -274,19 +252,8 @@ class HolidayService {
    */
   async isHoliday(date: Date, region?: string): Promise<boolean> {
     try {
-      const holidays = await this.getHolidaysByPeriod(date, date);
-      
-      return holidays.some(holiday => {
-        // Si c'est un jour férié override en jour ouvré, ce n'est plus férié
-        if (holiday.isWorkingDay) return false;
-
-        // Vérifier la région si spécifiée
-        if (region && !holiday.isNational && holiday.regions && !holiday.regions.includes(region)) {
-          return false;
-        }
-
-        return this.isSameDay(holiday.date, date);
-      });
+      const response = await holidaysAPI.checkIsHoliday(date.toISOString(), region);
+      return response.isHoliday;
     } catch (error) {
       console.error('Erreur lors de la vérification du jour férié:', error);
       return false;
@@ -298,36 +265,12 @@ class HolidayService {
    */
   async getWorkingDaysBetween(startDate: Date, endDate: Date, region?: string): Promise<number> {
     try {
-      const holidays = await this.getHolidaysByPeriod(startDate, endDate);
-      let workingDays = 0;
-      
-      const currentDate = new Date(startDate);
-      while (currentDate <= endDate) {
-        // Ignorer les weekends (samedi = 6, dimanche = 0)
-        const dayOfWeek = currentDate.getDay();
-        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-          // Vérifier si c'est un jour férié
-          const isHolidayDay = holidays.some(holiday => {
-            // Si override en jour ouvré, ce n'est plus férié
-            if (holiday.isWorkingDay) return false;
-
-            // Vérifier la région
-            if (region && !holiday.isNational && holiday.regions && !holiday.regions.includes(region)) {
-              return false;
-            }
-
-            return this.isSameDay(holiday.date, currentDate);
-          });
-
-          if (!isHolidayDay) {
-            workingDays++;
-          }
-        }
-        
-        currentDate.setDate(currentDate.getDate() + 1);
-      }
-
-      return workingDays;
+      const response = await holidaysAPI.getWorkingDays(
+        startDate.toISOString(),
+        endDate.toISOString(),
+        region
+      );
+      return response.workingDays;
     } catch (error) {
       console.error('Erreur lors du calcul des jours ouvrés:', error);
       throw error;
@@ -339,29 +282,16 @@ class HolidayService {
    */
   async getUpcomingHolidays(limit: number = 5): Promise<Holiday[]> {
     try {
-      const today = new Date();
-      const nextYear = new Date(today.getFullYear() + 1, 11, 31);
-
-      const q = query(
-        collection(db, this.HOLIDAYS_COLLECTION),
-        where('date', '>=', Timestamp.fromDate(today)),
-        where('date', '<=', Timestamp.fromDate(nextYear)),
-        orderBy('date', 'asc')
-      );
-
-      const snapshot = await getDocs(q);
-      const holidays = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        date: doc.data().date.toDate(),
-        createdAt: doc.data().createdAt.toDate(),
-        updatedAt: doc.data().updatedAt?.toDate(),
-      })) as Holiday[];
-
-      return holidays.slice(0, limit);
+      const holidays = await holidaysAPI.getUpcoming(limit);
+      return holidays.map(h => ({
+        ...h,
+        date: new Date(h.date),
+        createdAt: new Date(h.createdAt),
+        updatedAt: new Date(h.updatedAt),
+      }));
     } catch (error) {
       console.error('Erreur lors de la récupération des prochains jours fériés:', error);
-      throw error;
+      return [];
     }
   }
 
@@ -399,23 +329,23 @@ class HolidayService {
     byMonth: { [month: string]: number };
   }> {
     try {
+      const stats = await holidaysAPI.getStats(year);
       const holidays = await this.getHolidaysByYear(year);
-      
-      const stats = {
-        total: holidays.length,
-        national: holidays.filter(h => h.isNational).length,
-        regional: holidays.filter(h => !h.isNational).length,
-        workingDayOverrides: holidays.filter(h => h.isWorkingDay).length,
-        byMonth: {} as { [month: string]: number },
-      };
 
-      // Répartition par mois
+      // Calculer byMonth localement
+      const byMonth: { [month: string]: number } = {};
       holidays.forEach(holiday => {
         const month = holiday.date.toLocaleDateString('fr-FR', { month: 'long' });
-        stats.byMonth[month] = (stats.byMonth[month] || 0) + 1;
+        byMonth[month] = (byMonth[month] || 0) + 1;
       });
 
-      return stats;
+      return {
+        total: stats.total,
+        national: stats.national,
+        regional: stats.regional,
+        workingDayOverrides: stats.workingDays,
+        byMonth,
+      };
     } catch (error) {
       console.error('Erreur lors du calcul des statistiques:', error);
       throw error;

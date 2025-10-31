@@ -9,12 +9,21 @@ import { LeaveType, LeaveStatus } from '@prisma/client';
 export class FilterLeaveDto {
   @ApiProperty({
     description: 'ID de l\'utilisateur',
-    example: 'uuid',
+    example: 'test-admin-id',
     required: false,
   })
   @IsOptional()
-  @IsUUID()
+  @IsString()
   userId?: string;
+
+  @ApiProperty({
+    description: 'Filtrer par département (via l\'utilisateur)',
+    example: 'general-dept-default-001',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  departmentId?: string;
 
   @ApiProperty({
     description: 'Type de congé',

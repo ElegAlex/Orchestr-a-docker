@@ -17,6 +17,20 @@ const initialState: AuthState = {
 };
 
 /**
+ * Sanitize userId - Remove any suffix like ":1" from corrupted userIds
+ * This fixes legacy data from Firebase migration
+ */
+const sanitizeUser = (user: User): User => {
+  if (user.id && user.id.includes(':')) {
+    // Remove any suffix after ":" (e.g., "test-admin-id:1" → "test-admin-id")
+    const cleanId = user.id.split(':')[0];
+    console.warn(`🔧 Sanitized userId: "${user.id}" → "${cleanId}"`);
+    return { ...user, id: cleanId };
+  }
+  return user;
+};
+
+/**
  * Login avec email et mot de passe (JWT)
  */
 export const signInWithEmail = createAsyncThunk(
@@ -95,7 +109,7 @@ const authSlice = createSlice({
   initialState,
   reducers: {
     setUser: (state, action: PayloadAction<User | null>) => {
-      state.user = action.payload;
+      state.user = action.payload ? sanitizeUser(action.payload) : null;
       state.isAuthenticated = !!action.payload;
     },
     clearError: (state) => {
@@ -117,7 +131,7 @@ const authSlice = createSlice({
       })
       .addCase(signInWithEmail.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.user = action.payload;
+        state.user = sanitizeUser(action.payload);
         state.isAuthenticated = true;
         state.error = null;
       })
@@ -133,7 +147,7 @@ const authSlice = createSlice({
       })
       .addCase(signUpWithEmail.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.user = action.payload;
+        state.user = sanitizeUser(action.payload);
         state.isAuthenticated = true;
         state.error = null;
       })
@@ -166,7 +180,7 @@ const authSlice = createSlice({
       })
       .addCase(fetchUserProfile.fulfilled, (state, action) => {
         state.isLoading = false;
-        state.user = action.payload;
+        state.user = sanitizeUser(action.payload);
         state.isAuthenticated = true;
         state.error = null;
       })

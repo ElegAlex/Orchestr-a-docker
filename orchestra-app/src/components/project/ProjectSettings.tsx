@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -44,10 +44,34 @@ interface ProjectSettingsProps {
 }
 
 const ProjectSettings: React.FC<ProjectSettingsProps> = ({ project, onUpdate }) => {
-  const [formData, setFormData] = useState(project);
+  // Mapper status backend → frontend (MAJUSCULES → minuscules)
+  const mapStatusFromBackend = (status: string): string => {
+    const statusMap: Record<string, string> = {
+      'DRAFT': 'draft',
+      'ACTIVE': 'active',
+      'SUSPENDED': 'on_hold',
+      'COMPLETED': 'completed',
+      'CANCELLED': 'cancelled'
+    };
+    return statusMap[status] || status.toLowerCase();
+  };
+
+  // Initialiser formData avec le statut converti
+  const [formData, setFormData] = useState({
+    ...project,
+    status: mapStatusFromBackend(project.status)
+  });
   const [saving, setSaving] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  // Mettre à jour formData quand le projet change (après sauvegarde)
+  useEffect(() => {
+    setFormData({
+      ...project,
+      status: mapStatusFromBackend(project.status)
+    });
+  }, [project]);
 
   const handleInputChange = (field: keyof Project, value: any) => {
     setFormData(prev => ({
@@ -56,21 +80,44 @@ const ProjectSettings: React.FC<ProjectSettingsProps> = ({ project, onUpdate }) 
     }));
   };
 
+  // Mapper status frontend → backend (minuscules → MAJUSCULES)
+  const mapStatusToBackend = (status: string): string => {
+    const statusMap: Record<string, string> = {
+      'draft': 'DRAFT',
+      'planning': 'DRAFT', // 'planning' n'existe pas en backend, mapper vers DRAFT
+      'active': 'ACTIVE',
+      'on_hold': 'SUSPENDED',
+      'completed': 'COMPLETED',
+      'cancelled': 'CANCELLED'
+    };
+    return statusMap[status] || status.toUpperCase();
+  };
+
   const handleSave = async () => {
     try {
       setSaving(true);
-      
-      // Nettoyer les valeurs undefined pour Firebase
-      const cleanedData = Object.fromEntries(
-        Object.entries(formData).filter(([_, value]) => value !== undefined)
-      );
-      
-      const updatedProject = {
-        ...cleanedData,
-        updatedAt: new Date()
+
+      // Préparer les données pour l'API backend
+      const updateData: any = {
+        name: formData.name,
+        description: formData.description,
+        status: mapStatusToBackend(formData.status),
+        priority: formData.priority,
+        budget: formData.budget,
+        spentBudget: formData.spentBudget,
+        startDate: new Date(formData.startDate).toISOString(),
+        dueDate: formData.dueDate ? new Date(formData.dueDate).toISOString() : undefined,
+        tags: formData.tags,
+        // Note: managerId sera géré dans une future version avec sélection d'utilisateur
+        // Pour l'instant, on ne l'envoie pas pour éviter l'erreur de validation
       };
-      
-      await projectService.updateProject(project.id, updatedProject);
+
+      // Nettoyer les valeurs undefined
+      const cleanedData = Object.fromEntries(
+        Object.entries(updateData).filter(([_, value]) => value !== undefined)
+      );
+
+      await projectService.updateProject(project.id, cleanedData);
       onUpdate();
     } catch (error) {
       console.error('Erreur lors de la sauvegarde:', error);
@@ -98,10 +145,9 @@ const ProjectSettings: React.FC<ProjectSettingsProps> = ({ project, onUpdate }) 
 
   const handleArchive = async () => {
     try {
+      // Mapper status vers backend (minuscules → MAJUSCULES)
       await projectService.updateProject(project.id, {
-        ...project,
-        status: 'cancelled',
-        updatedAt: new Date()
+        status: 'CANCELLED' as any
       });
       onUpdate();
     } catch (error) {

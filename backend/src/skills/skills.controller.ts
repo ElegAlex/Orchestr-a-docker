@@ -18,6 +18,7 @@ import { UpdateUserSkillDto } from './dto/update-user-skill.dto';
 import { CreateTaskSkillDto } from './dto/create-task-skill.dto';
 import { UpdateTaskSkillDto } from './dto/update-task-skill.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Public } from '../auth/decorators/public.decorator';
 
 @Controller('skills')
 @UseGuards(JwtAuthGuard)
@@ -146,6 +147,7 @@ export class SkillsController {
 
   // ==================== INITIALISATION ====================
 
+  @Public()
   @Post('initialize')
   initializeDefaultSkills() {
     return this.skillsService.initializeDefaultSkills();

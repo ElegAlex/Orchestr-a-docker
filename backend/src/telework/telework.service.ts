@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -142,10 +143,20 @@ export class TeleworkService {
 
   /**
    * Récupérer tous les profils (pour admin)
+   * 🔒 Isolation par département : Filtre les profils par département si requis
    */
-  async getAllProfiles() {
+  async getAllProfiles(departmentFilter: string | null = null) {
+    const where: any = { isActive: true };
+
+    // 🔒 Filtre par département si fourni
+    if (departmentFilter) {
+      where.user = {
+        departmentId: departmentFilter,
+      };
+    }
+
     const profiles = await this.prisma.userTeleworkProfile.findMany({
-      where: { isActive: true },
+      where,
       include: {
         user: {
           select: {
@@ -277,8 +288,21 @@ export class TeleworkService {
 
   /**
    * Créer une demande d'exception
+   * BUG-05 FIX: Vérifier les permissions (user peut créer pour lui-même ou ADMIN/RESPONSABLE)
    */
-  async requestOverride(dto: CreateTeleworkOverrideDto) {
+  async requestOverride(dto: CreateTeleworkOverrideDto, currentUserId?: string, currentUserRole?: string) {
+    // BUG-05 FIX: Vérifier les permissions
+    if (currentUserId && currentUserRole) {
+      const isOwner = dto.userId === currentUserId;
+      const hasManagementRights = ['ADMIN', 'RESPONSABLE'].includes(currentUserRole);
+
+      if (!isOwner && !hasManagementRights) {
+        throw new ForbiddenException(
+          'Vous ne pouvez créer des exceptions de télétravail que pour vous-même',
+        );
+      }
+    }
+
     // Validation avant création
     const validation = await this.validateOverrideRequest({
       userId: dto.userId,
@@ -289,23 +313,14 @@ export class TeleworkService {
     // Générer ID unique pour éviter les doublons
     const overrideId = this.generateOverrideId(dto.userId, new Date(dto.date));
 
-    // Vérifier si une demande existe déjà pour ce jour
-    const existingOverride = await this.prisma.teleworkOverride.findUnique({
-      where: { id: overrideId },
-    });
-
-    if (existingOverride) {
-      throw new BadRequestException(
-        `Une demande d'exception existe déjà pour cette date`,
-      );
-    }
-
+    // Utiliser upsert pour créer ou mettre à jour l'override existant
     const approvalStatus = validation.requiresApproval
       ? ApprovalStatus.PENDING
       : ApprovalStatus.APPROVED;
 
-    const override = await this.prisma.teleworkOverride.create({
-      data: {
+    const override = await this.prisma.teleworkOverride.upsert({
+      where: { id: overrideId },
+      create: {
         id: overrideId,
         userId: dto.userId,
         date: new Date(dto.date),
@@ -314,6 +329,16 @@ export class TeleworkService {
         approvalStatus,
         createdBy: dto.createdBy,
         // Si pas besoin d'approbation, approuver automatiquement
+        approvedBy: validation.requiresApproval ? null : dto.createdBy,
+        approvedAt: validation.requiresApproval ? null : new Date(),
+      },
+      update: {
+        mode: dto.mode,
+        reason: dto.reason,
+        approvalStatus,
+        updatedBy: dto.createdBy,
+        updatedAt: new Date(),
+        // Réinitialiser l'approbation si modification
         approvedBy: validation.requiresApproval ? null : dto.createdBy,
         approvedAt: validation.requiresApproval ? null : new Date(),
       },
@@ -431,8 +456,9 @@ export class TeleworkService {
 
   /**
    * Supprimer une exception
+   * BUG-05 FIX: Vérifier les permissions (user peut supprimer ses propres exceptions ou ADMIN/RESPONSABLE)
    */
-  async deleteOverride(overrideId: string) {
+  async deleteOverride(overrideId: string, currentUserId?: string, currentUserRole?: string) {
     const override = await this.prisma.teleworkOverride.findUnique({
       where: { id: overrideId },
     });
@@ -441,6 +467,18 @@ export class TeleworkService {
       throw new NotFoundException(
         `Exception ${overrideId} non trouvée`,
       );
+    }
+
+    // BUG-05 FIX: Vérifier les permissions
+    if (currentUserId && currentUserRole) {
+      const isOwner = override.userId === currentUserId;
+      const hasManagementRights = ['ADMIN', 'RESPONSABLE'].includes(currentUserRole);
+
+      if (!isOwner && !hasManagementRights) {
+        throw new ForbiddenException(
+          'Vous ne pouvez supprimer que vos propres exceptions de télétravail',
+        );
+      }
     }
 
     await this.prisma.teleworkOverride.delete({

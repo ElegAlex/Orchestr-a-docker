@@ -109,12 +109,14 @@ export class TasksService {
 
   /**
    * Récupérer toutes les tâches avec filtrage et pagination
+   * 🔒 Isolation par département : Filtre les tâches via l'assignee du département
    */
   async findAll(filterDto: FilterTaskDto) {
     const {
       search,
       projectId,
       assigneeId,
+      departmentId,
       status,
       priority,
       dueDateAfter,
@@ -144,6 +146,13 @@ export class TasksService {
 
     if (assigneeId) {
       where.assigneeId = assigneeId;
+    }
+
+    // 🔒 Filtre par département : tâches assignées à un user du département
+    if (departmentId) {
+      where.assignee = {
+        departmentId: departmentId,
+      };
     }
 
     if (status) {
@@ -285,16 +294,75 @@ export class TasksService {
   }
 
   /**
-   * Mettre à jour une tâche
+   * BUG-06 FIX: Vérifier si un utilisateur est membre de l'équipe d'un projet
    */
-  async update(id: string, updateTaskDto: UpdateTaskDto) {
+  private async isProjectTeamMember(
+    projectId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const member = await this.prisma.projectMember.findFirst({
+      where: {
+        projectId,
+        userId,
+      },
+    });
+    return !!member;
+  }
+
+  /**
+   * Mettre à jour une tâche
+   * BUG-06 FIX: Les membres de l'équipe projet peuvent modifier le statut
+   */
+  async update(id: string, updateTaskDto: UpdateTaskDto, currentUserId?: string) {
     // Vérifier que la tâche existe
     const existingTask = await this.prisma.task.findUnique({
       where: { id },
+      include: {
+        project: {
+          select: {
+            id: true,
+            managerId: true,
+          },
+        },
+      },
     });
 
     if (!existingTask) {
       throw new NotFoundException('Tâche non trouvée');
+    }
+
+    // BUG-06 FIX: Vérifier les permissions si un userId est fourni
+    if (currentUserId) {
+      // Récupérer le rôle de l'utilisateur
+      const user = await this.prisma.user.findUnique({
+        where: { id: currentUserId },
+        select: { role: true },
+      });
+
+      if (!user) {
+        throw new NotFoundException('Utilisateur non trouvé');
+      }
+
+      // Les ADMIN, RESPONSABLE, MANAGER ont tous les droits
+      const hasAdminRights = ['ADMIN', 'RESPONSABLE', 'MANAGER'].includes(user.role);
+
+      // L'assigné peut modifier sa tâche
+      const isAssignee = existingTask.assigneeId === currentUserId;
+
+      // Le manager du projet peut modifier
+      const isProjectManager = existingTask.project.managerId === currentUserId;
+
+      // Membre de l'équipe projet peut modifier
+      const isTeamMember = await this.isProjectTeamMember(
+        existingTask.project.id,
+        currentUserId,
+      );
+
+      if (!hasAdminRights && !isAssignee && !isProjectManager && !isTeamMember) {
+        throw new ForbiddenException(
+          'Vous devez être membre de l\'équipe projet, assigné à la tâche, ou avoir les droits de gestion pour modifier cette tâche',
+        );
+      }
     }
 
     // Si l'assigné est modifié, vérifier qu'il existe

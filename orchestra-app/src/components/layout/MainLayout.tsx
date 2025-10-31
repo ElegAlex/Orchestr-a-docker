@@ -31,6 +31,7 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import SupervisedUserCircleIcon from '@mui/icons-material/SupervisedUserCircle';
 import SchoolIcon from '@mui/icons-material/School';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { RootState, AppDispatch } from '../../store';
 import { signOut } from '../../store/slices/authSlice';
 import { usePermissions } from '../../hooks/usePermissions';
@@ -73,6 +74,7 @@ export const MainLayout: React.FC = () => {
     { text: 'Projets', icon: <FolderIcon />, path: '/projects', permission: 'project.view' },
     // { text: 'Tâches', icon: <AssignmentIcon />, path: '/tasks', permission: 'task.view' }, // Masqué
     { text: 'Calendrier', icon: <CalendarMonthIcon />, path: '/calendar', permission: 'project.view' },
+    { text: 'Validation Congés', icon: <CheckCircleIcon />, path: '/leave-approval', permission: 'leave.approve' },
     { text: 'Supervision', icon: <SupervisedUserCircleIcon />, path: '/team-supervision', permission: 'team.supervise' },
     { text: 'Rapports', icon: <BarChartIcon />, path: '/reports', permission: 'report.view' },
     { text: 'Administration RH', icon: <AdminPanelSettingsIcon />, path: '/hr-admin', permission: 'hr.manage_employees' },
@@ -81,7 +83,9 @@ export const MainLayout: React.FC = () => {
   ];
 
   // Filtrage spécial pour les contributeurs et teamLead : accès limité à Mon Espace, Calendrier et Tutoriel
-  const isLimitedRole = user?.role === 'contributor' || user?.role === 'teamLead';
+  // CORRECTION: Normaliser le rôle en majuscules pour supporter CONTRIBUTOR et contributor
+  const userRole = user?.role?.toUpperCase();
+  const isLimitedRole = userRole === 'CONTRIBUTOR' || userRole === 'TEAMLEAD';
   const limitedRoleAllowedPaths = ['/dashboard-hub', '/calendar', '/tutorial'];
 
   // Filtrer les items selon les permissions utilisateur

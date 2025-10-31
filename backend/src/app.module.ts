@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { DepartmentIsolationGuard } from './auth/guards/department-isolation.guard';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -10,6 +12,7 @@ import { TasksModule } from './tasks/tasks.module';
 import { DocumentsModule } from './documents/documents.module';
 import { CommentsModule } from './comments/comments.module';
 import { LeavesModule } from './leaves/leaves.module';
+import { LeaveTypesModule } from './leave-types/leave-types.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ActivitiesModule } from './activities/activities.module';
 import { DepartmentsModule } from './departments/departments.module';
@@ -32,6 +35,8 @@ import { TeleworkModule } from './telework/telework.module';
 import { ServicesModule } from './services/services.module';
 import { UserServiceAssignmentsModule } from './user-service-assignments/user-service-assignments.module';
 import { SessionsModule } from './sessions/sessions.module';
+import { AttachmentsModule } from './attachments/attachments.module';
+import { PushNotificationsModule } from './push-notifications/push-notifications.module';
 
 @Module({
   imports: [
@@ -62,6 +67,8 @@ import { SessionsModule } from './sessions/sessions.module';
     CommentsModule,
     // Module de gestion des congés
     LeavesModule,
+    // Module de gestion des types de congés (paramétrage)
+    LeaveTypesModule,
     // Module de gestion des notifications
     NotificationsModule,
     // Module de gestion des logs d'activité
@@ -100,8 +107,19 @@ import { SessionsModule } from './sessions/sessions.module';
     UserServiceAssignmentsModule,
     // Module de gestion des sessions utilisateurs (audit logging)
     SessionsModule,
+    // Module de gestion des pièces jointes (Service 33)
+    AttachmentsModule,
+    // Module de gestion des notifications push (Service 35)
+    PushNotificationsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    // 🔒 Guard d'isolation par département (appliqué globalement)
+    {
+      provide: APP_GUARD,
+      useClass: DepartmentIsolationGuard,
+    },
+  ],
 })
 export class AppModule {}

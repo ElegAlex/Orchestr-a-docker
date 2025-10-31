@@ -85,7 +85,7 @@ const TeamSupervision: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const members = await teamSupervisionService.getTeamMembers(user.id, user.role, user.department);
+      const members = await teamSupervisionService.getTeamMembers(user.id, user.role, user.departmentId || user.department);
       setTeamMembers(members);
     } catch (err) {
       console.error('Erreur chargement membres équipe:', err);

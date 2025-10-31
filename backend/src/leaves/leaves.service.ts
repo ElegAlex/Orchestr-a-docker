@@ -86,10 +86,12 @@ export class LeavesService {
 
   /**
    * Récupérer toutes les demandes de congé avec filtrage et pagination
+   * 🔒 Isolation par département : Filtre les congés via l'utilisateur du département
    */
   async findAll(filterDto: FilterLeaveDto) {
     const {
       userId,
+      departmentId,
       type,
       status,
       startDateFrom,
@@ -106,6 +108,13 @@ export class LeavesService {
 
     if (userId) {
       where.userId = userId;
+    }
+
+    // 🔒 Filtre par département : congés d'utilisateurs du département
+    if (departmentId) {
+      where.user = {
+        departmentId: departmentId,
+      };
     }
 
     if (type) {
@@ -208,6 +217,7 @@ export class LeavesService {
   /**
    * Mettre à jour une demande de congé
    * Uniquement si status = PENDING
+   * BUG-02 FIX: Utilisateurs peuvent modifier leurs propres demandes PENDING
    */
   async update(
     id: string,
@@ -223,8 +233,12 @@ export class LeavesService {
       throw new NotFoundException('Demande de congé non trouvée');
     }
 
-    // Vérifier les permissions
-    if (existingLeave.userId !== userId && userRole !== 'ADMIN') {
+    // BUG-02 FIX: Vérifier les permissions
+    // Autorisé: Le user lui-même, ADMIN, ou RESPONSABLE
+    const isOwner = existingLeave.userId === userId;
+    const hasManagementRights = ['ADMIN', 'RESPONSABLE'].includes(userRole);
+
+    if (!isOwner && !hasManagementRights) {
       throw new ForbiddenException(
         'Vous n\'êtes pas autorisé à modifier cette demande',
       );

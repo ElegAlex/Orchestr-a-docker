@@ -46,7 +46,8 @@ import {
   Group as GroupIcon,
   Assignment as AssignmentIcon,
   SwapHoriz as SwapIcon,
-  AdminPanelSettings as AdminIcon
+  AdminPanelSettings as AdminIcon,
+  CalendarMonth as CalendarIcon
 } from '@mui/icons-material';
 import { Service, CreateServiceRequest } from '../types/service';
 import { User, Department, CreateDepartmentRequest } from '../types';
@@ -55,10 +56,10 @@ import { userService } from '../services/user.service';
 import { getRoleDisplayLabel } from '../utils/roleUtils';
 import { userServiceAssignmentService } from '../services/user-service-assignment.service';
 import { departmentService } from '../services/department.service';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { userServiceAssignmentsApi, UserServiceAssignment } from '../services/api/user-service-assignments.api';
 import { SkillsTab } from '../components/settings/SkillsTab';
 import { UserManagement } from '../components/admin/UserManagement';
+import { CalendarConfigTab } from '../components/settings/CalendarConfigTab';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -97,6 +98,7 @@ export const Settings: React.FC = () => {
   const [unassignedUsersDept, setUnassignedUsersDept] = useState<User[]>([]);
   const [serviceStats, setServiceStats] = useState<any>(null);
   const [departmentStats, setDepartmentStats] = useState<any>(null);
+  const [userAssignments, setUserAssignments] = useState<UserServiceAssignment[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Dialog states
@@ -135,7 +137,8 @@ export const Settings: React.FC = () => {
         unassignedData,
         unassignedDeptData,
         statsData,
-        deptStatsData
+        deptStatsData,
+        assignmentsData
       ] = await Promise.all([
         serviceService.getAllServices().catch(err => { console.warn('Services not available (Firebase):', err); return []; }),
         departmentService.getAllDepartments().catch(err => { console.error('Error loading departments:', err); return []; }),
@@ -143,7 +146,8 @@ export const Settings: React.FC = () => {
         userServiceAssignmentService.getUnassignedUsers().catch(err => { console.warn('Unassigned users not available (Firebase):', err); return []; }),
         departmentService.getUnassignedUsers().catch(err => { console.warn('Unassigned dept users not available:', err); return []; }),
         userServiceAssignmentService.getServiceAssignmentStats().catch(err => { console.warn('Service stats not available (Firebase):', err); return null; }),
-        departmentService.getDepartmentStats().catch(err => { console.error('Error loading dept stats:', err); return null; })
+        departmentService.getDepartmentStats().catch(err => { console.error('Error loading dept stats:', err); return null; }),
+        userServiceAssignmentsApi.getAll().catch(err => { console.warn('Assignments error:', err); return []; })
       ]);
       setServices(servicesData);
       setDepartments(departmentsData);
@@ -152,6 +156,7 @@ export const Settings: React.FC = () => {
       setUnassignedUsersDept(unassignedDeptData);
       setServiceStats(statsData);
       setDepartmentStats(deptStatsData);
+      setUserAssignments(assignmentsData || []);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -161,6 +166,13 @@ export const Settings: React.FC = () => {
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
+  };
+
+  const getUserServiceIds = (userId: string): string[] => {
+    if (!userAssignments) return [];
+    return userAssignments
+      .filter(a => a.userId === userId && a.isActive)
+      .map(a => a.serviceId);
   };
 
   const handleOpenServiceDialog = (service?: Service) => {
@@ -397,6 +409,11 @@ export const Settings: React.FC = () => {
             <Tab
               label="Administration"
               icon={<AdminIcon />}
+              iconPosition="start"
+            />
+            <Tab
+              label="Calendrier"
+              icon={<CalendarIcon />}
               iconPosition="start"
             />
           </Tabs>
@@ -1044,8 +1061,7 @@ export const Settings: React.FC = () => {
           {/* INTERFACE SIMPLE : LISTE DES UTILISATEURS */}
           <Stack spacing={3}>
             {users.map((user) => {
-              // Récupérer les services actuels de l'utilisateur
-              const currentServiceIds = user.serviceIds || [];
+              const currentServiceIds = getUserServiceIds(user.id);
               
               return (
                 <Paper 
@@ -1093,40 +1109,23 @@ export const Settings: React.FC = () => {
                   <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
                     {services.map((service) => {
                       const isAssigned = currentServiceIds.includes(service.id);
-                      
+
                       return (
-                        <Box>
+                        <Box key={service.id}>
                           <FormControlLabel
                             control={
                               <Checkbox
                                 checked={isAssigned}
                                 onChange={async (e) => {
                                   try {
-                                    const userRef = doc(db, 'users', user.id);
-                                    let newServiceIds = [...currentServiceIds];
-                                    
                                     if (e.target.checked) {
-                                      // AJOUTER le service
-                                      if (!newServiceIds.includes(service.id)) {
-                                        newServiceIds.push(service.id);
-                                      }
+                                      await userServiceAssignmentService.addServiceToUser(user.id, service.id);
                                     } else {
-                                      // RETIRER le service
-                                      newServiceIds = newServiceIds.filter(id => id !== service.id);
+                                      await userServiceAssignmentService.removeServiceFromUser(user.id, service.id);
                                     }
-                                    
-                                    // MISE À JOUR FIRESTORE
-                                    await updateDoc(userRef, {
-                                      serviceIds: newServiceIds,
-                                      updatedAt: new Date()
-                                    });
-                                    
-                                    // RECHARGER
                                     await loadData();
-                                    
-                                    console.log(`✅ ${e.target.checked ? 'Ajouté' : 'Retiré'} service ${service.name} pour ${user.firstName}`);
                                   } catch (error) {
-                                    console.error('Erreur modification service:', error);
+                                    console.error('Erreur:', error);
                                   }
                                 }}
                                 sx={{
@@ -1151,14 +1150,14 @@ export const Settings: React.FC = () => {
                                   {service.name}
                                 </Typography>
                                 {isAssigned && (
-                                  <Chip 
-                                    label="✓" 
-                                    size="small" 
-                                    sx={{ 
+                                  <Chip
+                                    label="✓"
+                                    size="small"
+                                    sx={{
                                       height: 20,
                                       bgcolor: `${service.color  }20`,
                                       color: service.color
-                                    }} 
+                                    }}
                                   />
                                 )}
                               </Box>
@@ -1213,6 +1212,10 @@ export const Settings: React.FC = () => {
 
         <TabPanel value={tabValue} index={5}>
           <UserManagement />
+        </TabPanel>
+
+        <TabPanel value={tabValue} index={6}>
+          <CalendarConfigTab />
         </TabPanel>
       </Paper>
 

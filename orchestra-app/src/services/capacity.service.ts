@@ -1,12 +1,15 @@
 /**
  * Service Capacity - Migration REST API
  * Gestion des contrats, allocations et calculs de capacité
+ *
+ * ✅ REFONTE COMPLÈTE - 20 Oct 2025
+ * - Gestion correcte des contrats virtuels
+ * - Conversion automatique des dates
+ * - Gestion robuste des erreurs
  */
 
-import {
-  capacityApi,
-  ContractType,
-  WeekDay,
+import { capacityApi, ContractType, WeekDay } from './api/capacity.api';
+import type {
   WorkContract,
   ResourceAllocation,
   DatePeriod,
@@ -15,7 +18,28 @@ import {
   UpdateContractDto,
   CreateAllocationDto,
   UpdateAllocationDto,
-} from './api';
+} from './api/capacity.api';
+
+/**
+ * Fonction helper pour convertir Date → ISO string (YYYY-MM-DD)
+ */
+function toISODateString(date: any): string {
+  if (!date) return new Date().toISOString().split('T')[0];
+  if (date instanceof Date) return date.toISOString().split('T')[0];
+  if (typeof date === 'string') return date.split('T')[0];
+  return new Date().toISOString().split('T')[0];
+}
+
+/**
+ * Fonction helper pour normaliser les jours de la semaine en MAJUSCULES
+ */
+function normalizeWorkingDays(days: any[]): WeekDay[] {
+  if (!Array.isArray(days)) return [];
+  return days.map(day => {
+    const dayStr = String(day).toUpperCase();
+    return dayStr as WeekDay;
+  });
+}
 
 class CapacityService {
   // ========================================
@@ -24,13 +48,25 @@ class CapacityService {
 
   /**
    * Récupère le contrat actif d'un utilisateur
+   * Retourne TOUJOURS un contrat (virtuel si pas de contrat réel)
    */
   async getUserContract(userId: string): Promise<WorkContract> {
     try {
-      console.log('📝 CapacityService.getUserContract:', { userId });
-      return await capacityApi.getUserContract(userId);
-    } catch (error) {
-      console.error('Erreur lors de la récupération du contrat:', error);
+      const apiContract = await capacityApi.getUserContract(userId);
+
+      // Convertir les dates string en objets Date
+      // IMPORTANT: Gérer null/undefined pour éviter Invalid Date
+      const contract: WorkContract = {
+        ...apiContract,
+        startDate: apiContract.startDate ? new Date(apiContract.startDate) : new Date(),
+        endDate: apiContract.endDate ? new Date(apiContract.endDate) : undefined,
+        createdAt: apiContract.createdAt ? new Date(apiContract.createdAt) : new Date(),
+        updatedAt: apiContract.updatedAt ? new Date(apiContract.updatedAt) : new Date(),
+      };
+
+      return contract;
+    } catch (error: any) {
+      console.error('[CapacityService] Erreur récupération contrat:', error);
       throw error;
     }
   }
@@ -40,10 +76,9 @@ class CapacityService {
    */
   async getUserContracts(userId: string): Promise<WorkContract[]> {
     try {
-      console.log('📝 CapacityService.getUserContracts:', { userId });
       return await capacityApi.getUserContracts(userId);
     } catch (error) {
-      console.error('Erreur lors de la récupération des contrats:', error);
+      console.error('[CapacityService] Erreur récupération contrats:', error);
       throw error;
     }
   }
@@ -53,10 +88,9 @@ class CapacityService {
    */
   async getMyContract(): Promise<WorkContract> {
     try {
-      console.log('📝 CapacityService.getMyContract');
       return await capacityApi.getMyContract();
     } catch (error) {
-      console.error('Erreur lors de la récupération de mon contrat:', error);
+      console.error('[CapacityService] Erreur récupération mon contrat:', error);
       throw error;
     }
   }
@@ -69,22 +103,15 @@ class CapacityService {
     contractData: Partial<CreateContractDto>
   ): Promise<WorkContract> {
     try {
-      console.log('📝 CapacityService.createContract:', { userId, contractData });
-
       const dto: CreateContractDto = {
         type: contractData.type || ContractType.CDI,
         workingTimePercentage: contractData.workingTimePercentage || 100,
         weeklyHours: contractData.weeklyHours || 35,
-        workingDays: contractData.workingDays || [
-          WeekDay.MONDAY,
-          WeekDay.TUESDAY,
-          WeekDay.WEDNESDAY,
-          WeekDay.THURSDAY,
-          WeekDay.FRIDAY,
-        ],
-        startDate:
-          contractData.startDate || new Date().toISOString().split('T')[0],
-        endDate: contractData.endDate,
+        workingDays: contractData.workingDays
+          ? normalizeWorkingDays(contractData.workingDays)
+          : [WeekDay.MONDAY, WeekDay.TUESDAY, WeekDay.WEDNESDAY, WeekDay.THURSDAY, WeekDay.FRIDAY],
+        startDate: toISODateString(contractData.startDate),
+        endDate: contractData.endDate ? toISODateString(contractData.endDate) : undefined,
         paidLeaveDays: contractData.paidLeaveDays || 25,
         rttDays: contractData.rttDays || 0,
         isRemoteAllowed: contractData.isRemoteAllowed || false,
@@ -93,9 +120,21 @@ class CapacityService {
         workingSchedule: contractData.workingSchedule,
       };
 
-      return await capacityApi.createContract(userId, dto);
+      const apiResult = await capacityApi.createContract(userId, dto);
+
+      // Convertir les dates string en objets Date
+      // IMPORTANT: Gérer null/undefined pour éviter Invalid Date
+      const result: WorkContract = {
+        ...apiResult,
+        startDate: apiResult.startDate ? new Date(apiResult.startDate) : new Date(),
+        endDate: apiResult.endDate ? new Date(apiResult.endDate) : undefined,
+        createdAt: apiResult.createdAt ? new Date(apiResult.createdAt) : new Date(),
+        updatedAt: apiResult.updatedAt ? new Date(apiResult.updatedAt) : new Date(),
+      };
+
+      return result;
     } catch (error) {
-      console.error('Erreur lors de la création du contrat:', error);
+      console.error('[CapacityService] Erreur création contrat:', error);
       throw error;
     }
   }
@@ -105,10 +144,9 @@ class CapacityService {
    */
   async createDefaultContract(userId: string): Promise<WorkContract> {
     try {
-      console.log('📝 CapacityService.createDefaultContract:', { userId });
       return await this.createContract(userId, {});
     } catch (error) {
-      console.error('Erreur lors de la création du contrat par défaut:', error);
+      console.error('[CapacityService] Erreur création contrat par défaut:', error);
       throw error;
     }
   }
@@ -121,10 +159,36 @@ class CapacityService {
     updates: Partial<UpdateContractDto>
   ): Promise<WorkContract> {
     try {
-      console.log('📝 CapacityService.updateContract:', { contractId, updates });
-      return await capacityApi.updateContract(contractId, updates);
+      // Convertir les dates et normaliser les données avant l'envoi
+      const dto: Partial<UpdateContractDto> = { ...updates };
+
+      if (updates.startDate) {
+        dto.startDate = toISODateString(updates.startDate);
+      }
+
+      if (updates.endDate !== undefined) {
+        dto.endDate = toISODateString(updates.endDate);
+      }
+
+      if (updates.workingDays) {
+        dto.workingDays = normalizeWorkingDays(updates.workingDays);
+      }
+
+      const apiResult = await capacityApi.updateContract(contractId, dto);
+
+      // Convertir les dates string en objets Date
+      // IMPORTANT: Gérer null/undefined pour éviter Invalid Date
+      const result: WorkContract = {
+        ...apiResult,
+        startDate: apiResult.startDate ? new Date(apiResult.startDate) : new Date(),
+        endDate: apiResult.endDate ? new Date(apiResult.endDate) : undefined,
+        createdAt: apiResult.createdAt ? new Date(apiResult.createdAt) : new Date(),
+        updatedAt: apiResult.updatedAt ? new Date(apiResult.updatedAt) : new Date(),
+      };
+
+      return result;
     } catch (error) {
-      console.error('Erreur lors de la mise à jour du contrat:', error);
+      console.error('[CapacityService] Erreur mise à jour contrat:', error);
       throw error;
     }
   }
@@ -134,10 +198,9 @@ class CapacityService {
    */
   async deleteContract(contractId: string): Promise<void> {
     try {
-      console.log('📝 CapacityService.deleteContract:', { contractId });
       await capacityApi.deleteContract(contractId);
     } catch (error) {
-      console.error('Erreur lors de la suppression du contrat:', error);
+      console.error('[CapacityService] Erreur suppression contrat:', error);
       throw error;
     }
   }
@@ -146,117 +209,78 @@ class CapacityService {
   // GESTION DES ALLOCATIONS
   // ========================================
 
-  /**
-   * Récupère les allocations d'un utilisateur
-   */
   async getUserAllocations(
     userId: string,
     period?: DatePeriod
   ): Promise<ResourceAllocation[]> {
     try {
-      console.log('📝 CapacityService.getUserAllocations:', { userId, period });
       return await capacityApi.getUserAllocations(
         userId,
         period?.startDate,
         period?.endDate
       );
     } catch (error) {
-      console.error(
-        'Erreur lors de la récupération des allocations utilisateur:',
-        error
-      );
+      console.error('[CapacityService] Erreur récupération allocations utilisateur:', error);
       throw error;
     }
   }
 
-  /**
-   * Récupère les allocations d'un projet
-   */
   async getProjectAllocations(
     projectId: string,
     period?: DatePeriod
   ): Promise<ResourceAllocation[]> {
     try {
-      console.log('📝 CapacityService.getProjectAllocations:', {
-        projectId,
-        period,
-      });
       return await capacityApi.getProjectAllocations(
         projectId,
         period?.startDate,
         period?.endDate
       );
     } catch (error) {
-      console.error(
-        'Erreur lors de la récupération des allocations projet:',
-        error
-      );
+      console.error('[CapacityService] Erreur récupération allocations projet:', error);
       throw error;
     }
   }
 
-  /**
-   * Récupère mes allocations
-   */
   async getMyAllocations(period?: DatePeriod): Promise<ResourceAllocation[]> {
     try {
-      console.log('📝 CapacityService.getMyAllocations:', { period });
       return await capacityApi.getMyAllocations(
         period?.startDate,
         period?.endDate
       );
     } catch (error) {
-      console.error(
-        'Erreur lors de la récupération de mes allocations:',
-        error
-      );
+      console.error('[CapacityService] Erreur récupération mes allocations:', error);
       throw error;
     }
   }
 
-  /**
-   * Crée une allocation de ressource
-   */
   async createAllocation(
     allocationData: CreateAllocationDto
   ): Promise<ResourceAllocation> {
     try {
-      console.log('📝 CapacityService.createAllocation:', { allocationData });
       return await capacityApi.createAllocation(allocationData);
     } catch (error) {
-      console.error('Erreur lors de la création de l\'allocation:', error);
+      console.error('[CapacityService] Erreur création allocation:', error);
       throw error;
     }
   }
 
-  /**
-   * Met à jour une allocation
-   */
   async updateAllocation(
     allocationId: string,
     updates: UpdateAllocationDto
   ): Promise<ResourceAllocation> {
     try {
-      console.log('📝 CapacityService.updateAllocation:', {
-        allocationId,
-        updates,
-      });
       return await capacityApi.updateAllocation(allocationId, updates);
     } catch (error) {
-      console.error('Erreur lors de la mise à jour de l\'allocation:', error);
+      console.error('[CapacityService] Erreur mise à jour allocation:', error);
       throw error;
     }
   }
 
-  /**
-   * Supprime une allocation
-   */
   async deleteAllocation(allocationId: string): Promise<void> {
     try {
-      console.log('📝 CapacityService.deleteAllocation:', { allocationId });
       await capacityApi.deleteAllocation(allocationId);
     } catch (error) {
-      console.error('Erreur lors de la suppression de l\'allocation:', error);
+      console.error('[CapacityService] Erreur suppression allocation:', error);
       throw error;
     }
   }
@@ -265,19 +289,11 @@ class CapacityService {
   // CALCUL DE CAPACITÉ
   // ========================================
 
-  /**
-   * Calcule la capacité complète d'un utilisateur pour une période
-   */
   async calculateUserCapacity(
     userId: string,
     period: DatePeriod
   ): Promise<UserCapacity> {
     try {
-      console.log('📝 CapacityService.calculateUserCapacity:', {
-        userId,
-        period,
-      });
-
       return await capacityApi.calculateUserCapacity(
         userId,
         period.startDate,
@@ -285,46 +301,33 @@ class CapacityService {
         period.label
       );
     } catch (error) {
-      console.error('Erreur lors du calcul de la capacité:', error);
+      console.error('[CapacityService] Erreur calcul capacité:', error);
       throw error;
     }
   }
 
-  /**
-   * Calcule ma capacité pour une période
-   */
   async calculateMyCapacity(period: DatePeriod): Promise<UserCapacity> {
     try {
-      console.log('📝 CapacityService.calculateMyCapacity:', { period });
-
       return await capacityApi.calculateMyCapacity(
         period.startDate,
         period.endDate,
         period.label
       );
     } catch (error) {
-      console.error('Erreur lors du calcul de ma capacité:', error);
+      console.error('[CapacityService] Erreur calcul ma capacité:', error);
       throw error;
     }
   }
 
-  /**
-   * Récupère la capacité en cache
-   */
   async getCachedCapacity(userId: string, period: DatePeriod) {
     try {
-      console.log('📝 CapacityService.getCachedCapacity:', { userId, period });
-
       return await capacityApi.getCachedCapacity(
         userId,
         period.startDate,
         period.endDate
       );
     } catch (error) {
-      console.error(
-        'Erreur lors de la récupération de la capacité en cache:',
-        error
-      );
+      console.error('[CapacityService] Erreur récupération capacité en cache:', error);
       throw error;
     }
   }
@@ -333,39 +336,26 @@ class CapacityService {
   // GÉNÉRATION DE PÉRIODES
   // ========================================
 
-  /**
-   * Génère des périodes prédéfinies (mois, trimestre, année)
-   */
   async generatePeriods(
     type: 'month' | 'quarter' | 'year',
     year: number
   ): Promise<DatePeriod[]> {
     try {
-      console.log('📝 CapacityService.generatePeriods:', { type, year });
       return await capacityApi.generatePeriods(type, year);
     } catch (error) {
-      console.error('Erreur lors de la génération des périodes:', error);
+      console.error('[CapacityService] Erreur génération périodes:', error);
       throw error;
     }
   }
 
-  /**
-   * Génère les périodes mensuelles pour une année
-   */
   async generateMonthlyPeriods(year: number): Promise<DatePeriod[]> {
     return this.generatePeriods('month', year);
   }
 
-  /**
-   * Génère les périodes trimestrielles pour une année
-   */
   async generateQuarterlyPeriods(year: number): Promise<DatePeriod[]> {
     return this.generatePeriods('quarter', year);
   }
 
-  /**
-   * Génère la période annuelle
-   */
   async generateYearlyPeriod(year: number): Promise<DatePeriod[]> {
     return this.generatePeriods('year', year);
   }
@@ -374,49 +364,30 @@ class CapacityService {
   // MÉTHODES UTILITAIRES
   // ========================================
 
-  /**
-   * Calcule la capacité journalière pour une période
-   * Note: Cette méthode est conservée pour compatibilité mais pourrait être supprimée
-   * car le backend gère maintenant tous les calculs
-   */
   async calculateDailyCapacityForPeriod(
     userId: string,
     period: DatePeriod
   ): Promise<number[]> {
     try {
-      // Récupérer la capacité complète (qui inclut workingDaysInPeriod)
       const capacity = await this.calculateUserCapacity(userId, period);
       return capacity.workingDaysInPeriod;
     } catch (error) {
-      console.error(
-        'Erreur lors du calcul de la capacité journalière:',
-        error
-      );
+      console.error('[CapacityService] Erreur calcul capacité journalière:', error);
       throw error;
     }
   }
 
-  /**
-   * Vérifie si une date est dans une période
-   */
   isDateInPeriod(date: Date | string, period: DatePeriod): boolean {
     const checkDate = typeof date === 'string' ? new Date(date) : date;
     const startDate = new Date(period.startDate);
     const endDate = new Date(period.endDate);
-
     return checkDate >= startDate && checkDate <= endDate;
   }
 
-  /**
-   * Formate une date pour l'API (YYYY-MM-DD)
-   */
   formatDateForAPI(date: Date): string {
     return date.toISOString().split('T')[0];
   }
 
-  /**
-   * Crée une période à partir de dates
-   */
   createPeriod(
     startDate: Date | string,
     endDate: Date | string,
@@ -431,6 +402,16 @@ class CapacityService {
         typeof endDate === 'string' ? endDate : this.formatDateForAPI(endDate),
       label,
     };
+  }
+
+  /**
+   * Vérifie si un contrat est virtuel (pas encore créé en base)
+   */
+  isVirtualContract(contract: WorkContract | null): boolean {
+    if (!contract) return true;
+    if (!contract.id) return true;
+    if (contract.id.startsWith('virtual-')) return true;
+    return false;
   }
 }
 

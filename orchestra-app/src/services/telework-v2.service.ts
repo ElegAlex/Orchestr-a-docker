@@ -14,6 +14,29 @@ import {
 
 class TeleworkServiceV2 {
   // =============================================
+  // HELPER: CONVERSION DES MODES
+  // =============================================
+
+  /**
+   * Convertit le mode frontend (remote/office) vers le mode backend (REMOTE/ONSITE)
+   */
+  private convertModeToBackend(mode: string): 'REMOTE' | 'ONSITE' {
+    if (mode === 'remote') return 'REMOTE';
+    if (mode === 'office') return 'ONSITE';
+    // Fallback: si déjà en majuscule, retourner tel quel
+    return mode.toUpperCase() as 'REMOTE' | 'ONSITE';
+  }
+
+  /**
+   * Convertit le mode backend (REMOTE/ONSITE) vers le mode frontend (remote/office)
+   */
+  private convertModeFromBackend(mode: string): 'remote' | 'office' {
+    if (mode === 'REMOTE') return 'remote';
+    if (mode === 'ONSITE') return 'office';
+    return mode.toLowerCase() as 'remote' | 'office';
+  }
+
+  // =============================================
   // GESTION DES PROFILS UTILISATEUR
   // =============================================
 
@@ -53,8 +76,11 @@ class TeleworkServiceV2 {
     try {
       const profile = await teleworkAPI.getUserProfile(userId);
       return profile;
-    } catch (error) {
-      console.error('Erreur lors de la récupération du profil:', error);
+    } catch (error: any) {
+      // 404 = profil pas encore créé, c'est normal, pas besoin de logger
+      if (error?.status !== 404 && error?.response?.status !== 404) {
+        console.error('Erreur lors de la récupération du profil:', error);
+      }
       return null;
     }
   }
@@ -125,7 +151,7 @@ class TeleworkServiceV2 {
       const overrideData: any = {
         userId: override.userId,
         date: typeof override.date === 'string' ? override.date : override.date.toISOString().split('T')[0],
-        mode: override.mode,
+        mode: this.convertModeToBackend(override.mode), // Conversion frontend → backend
         createdBy: override.createdBy
       };
 
@@ -134,7 +160,10 @@ class TeleworkServiceV2 {
         overrideData.reason = override.reason;
       }
 
-      const result = await teleworkAPI.createOverride(overrideData);
+      // DEBUG: Log du payload envoyé
+      console.log('🔍 [Telework] Payload envoyé au backend:', JSON.stringify(overrideData, null, 2));
+
+      const result = await teleworkAPI.requestOverride(overrideData);
       return result.id;
     } catch (error) {
       console.error('Erreur lors de la création de l\'exception:', error);
@@ -247,7 +276,7 @@ class TeleworkServiceV2 {
    */
   async getTeamRulesForUser(userId: string): Promise<TeamTeleworkRule[]> {
     try {
-      return await teleworkAPI.getUserTeamRules(userId);
+      return await teleworkAPI.getTeamRulesForUser(userId);
     } catch (error) {
       console.error('Erreur lors de la récupération des règles équipe:', error);
       return [];
@@ -461,15 +490,17 @@ class TeleworkServiceV2 {
 
   /**
    * Obtenir un profil avec création automatique si inexistant
+   * CORRECTION: Utilise maintenant l'endpoint backend dédié /profiles/:userId/get-or-create
    */
   async getOrCreateUserProfile(userId: string, displayName: string, createdBy: string): Promise<UserTeleworkProfile> {
-    let profile = await this.getUserProfile(userId);
-
-    if (!profile) {
-      profile = await this.createDefaultProfile(userId, displayName, createdBy);
+    try {
+      // Utiliser l'endpoint backend qui gère la création automatique
+      const profile = await teleworkAPI.getOrCreateProfile(userId, displayName, createdBy);
+      return profile;
+    } catch (error) {
+      console.error('Erreur lors de la récupération/création du profil:', error);
+      throw error;
     }
-
-    return profile;
   }
 
   // =============================================

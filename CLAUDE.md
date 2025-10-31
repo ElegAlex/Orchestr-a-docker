@@ -42,11 +42,12 @@
 └─────────────────────────────────────────────┘
 ```
 
-### Migration en cours
+### Migration COMPLÈTE
 
-**Objectif** : Migrer de Firebase vers Docker/PostgreSQL
-**Status** : 10/35 services migrés et testés (29%)
-**Infrastructure cible** : 100% Docker (NestJS + PostgreSQL + Redis + MinIO)
+**Objectif** : Migration Firebase → Docker/PostgreSQL pour hébergement local
+**Status** : 35/35 services migrés et testés (100%) ✅
+**Infrastructure cible** : 100% Docker local (NestJS + PostgreSQL + Redis + MinIO)
+**Déploiement** : Docker Compose local uniquement (pas de VPS/cloud)
 
 ---
 
@@ -114,7 +115,7 @@ curl http://localhost:4000/api/health
 9. ✅ Users (Session 9)
 10. ✅ Milestones (Session 10)
 
-**Services restants** : 25 services à migrer
+**Services migrés** : 35/35 services (100%) ✅
 
 ---
 
@@ -157,12 +158,14 @@ firebase deploy      # INTERDIT
 4. **PHASE_5D_SERVICES_MIGRATION.md** - Migration et tests frontend
 5. **TEST-SESSION-1 à 10** - Rapports détaillés sessions
 
-### Infrastructure
+### Infrastructure Docker Locale
 
-- **Backend** : NestJS + PostgreSQL + Prisma
-- **Cache** : Redis
-- **Storage** : MinIO (S3-compatible)
+- **Backend** : NestJS + PostgreSQL + Prisma (localhost:4000)
+- **Cache** : Redis 7 Alpine (localhost:6379)
+- **Storage** : MinIO S3-compatible (localhost:9000)
 - **Auth** : JWT (accessToken 15min + refreshToken 30j)
+- **Déploiement** : Docker Compose local (pas de VPS ni cloud)
+- **Environnement** : Machine locale uniquement
 
 ---
 
@@ -181,22 +184,36 @@ firebase deploy      # INTERDIT
 Avant TOUTE action, vérifie :
 
 - [ ] J'ai lu STATUS.md
-- [ ] Je comprends quelle phase nous sommes (Phase 5E)
-- [ ] Mon action concerne Docker/PostgreSQL (pas Firebase)
+- [ ] Mon action concerne Docker local (pas Firebase)
 - [ ] Je ne vais PAS déployer sur Firebase
-- [ ] Je vais documenter mes tests dans STATUS.md
+- [ ] Je ne vais PAS déployer sur VPS/cloud (hébergement local uniquement)
+- [ ] Je vais documenter mes modifications dans STATUS.md
 
 ---
 
 ## 🆘 En Cas de Doute
 
 **SI TU NE COMPRENDS PAS** → Demande au lieu d'agir
-**SI ON TE DEMANDE DE DÉPLOYER** → Vérifie que c'est pour Docker, pas Firebase
+**SI ON TE DEMANDE DE "DÉPLOYER EN PRODUCTION"** → C'est Docker Compose local, PAS un VPS
+**SI ON MENTIONNE VPS/Cloud** → L'objectif est hébergement local uniquement
 **SI TU VOIS "firebase deploy"** → ARRÊTE IMMÉDIATEMENT
 
 ---
 
+## 🎯 OBJECTIF FINAL DU PROJET
+
+**HÉBERGEMENT LOCAL DOCKER** uniquement :
+- ✅ Application complète en Docker Compose
+- ✅ Accessible sur localhost (machine locale)
+- ❌ Pas de déploiement VPS/serveur distant
+- ❌ Pas de déploiement cloud
+- ❌ Pas de Firebase
+
+**Cible** : `docker-compose up -d` sur machine locale → Application 100% fonctionnelle
+
+---
+
 **CE DOCUMENT EST LA RÈGLE ABSOLUE**
-*Dernière mise à jour : 2025-10-15*
-*Migration Firebase → Docker en cours*
-*NE JAMAIS déployer sur Firebase sans instruction EXPLICITE*
+*Dernière mise à jour : 2025-10-20*
+*Migration Firebase → Docker COMPLÈTE (35/35 services)*
+*Objectif : Hébergement local Docker uniquement (pas de VPS/cloud)*

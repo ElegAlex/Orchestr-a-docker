@@ -41,17 +41,7 @@ import { format, differenceInDays, addDays, isWeekend, startOfMonth, endOfMonth 
 import { fr } from 'date-fns/locale';
 import { LeaveRequest, LeaveType, WorkContract } from '../../types';
 import { leaveService } from '../../services/leave.service';
-
-// Définition des types de congés avec leurs icônes et couleurs
-const LEAVE_TYPES: { value: LeaveType; label: string; icon: React.ReactNode; color: any }[] = [
-  { value: 'PAID_LEAVE', label: 'Congés payés', icon: <VacationIcon />, color: 'primary' },
-  { value: 'RTT', label: 'RTT', icon: <WorkIcon />, color: 'secondary' },
-  { value: 'SICK_LEAVE', label: 'Congé maladie', icon: <SickIcon />, color: 'error' },
-  { value: 'TRAINING', label: 'Formation', icon: <TrainingIcon />, color: 'info' },
-  { value: 'EXCEPTIONAL_LEAVE', label: 'Congé exceptionnel', icon: <VacationIcon />, color: 'warning' },
-  { value: 'CONVENTIONAL_LEAVE', label: 'Congé conventionnel', icon: <VacationIcon />, color: 'info' },
-  { value: 'UNPAID_LEAVE', label: 'Congé sans solde', icon: <VacationIcon />, color: 'default' },
-];
+import { leaveTypesAPI, LeaveTypeConfig } from '../../services/api/leaveTypes.api';
 
 interface LeaveDeclarationTabProps {
   userId: string;
@@ -71,13 +61,14 @@ export const LeaveDeclarationTab: React.FC<LeaveDeclarationTabProps> = ({
 }) => {
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
   const [loading, setLoading] = useState(false);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeConfig[]>([]);
   const [balance, setBalance] = useState<LeaveBalance>({
     paidLeave: contract.paidLeaveDays || 25,
     rtt: contract.rttDays || 0,
     usedPaidLeave: 0,
     usedRtt: 0,
   });
-  
+
   // Dialog pour nouvelle déclaration
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newLeave, setNewLeave] = useState<Partial<LeaveRequest>>({
@@ -108,6 +99,23 @@ export const LeaveDeclarationTab: React.FC<LeaveDeclarationTabProps> = ({
     return Math.max(0, days);
   };
 
+  // Charger les types de congés configurables
+  useEffect(() => {
+    const loadLeaveTypes = async () => {
+      try {
+        const types = await leaveTypesAPI.getActive();
+        setLeaveTypes(types);
+        // Initialiser le type par défaut avec le premier type actif
+        if (types.length > 0 && !newLeave.type) {
+          setNewLeave(prev => ({ ...prev, type: types[0].code as LeaveType }));
+        }
+      } catch (error) {
+        console.error('Error loading leave types:', error);
+      }
+    };
+    loadLeaveTypes();
+  }, []);
+
   // Charger les vraies demandes de congés depuis Firestore
   useEffect(() => {
     const loadLeaveRequests = async () => {
@@ -123,7 +131,7 @@ export const LeaveDeclarationTab: React.FC<LeaveDeclarationTabProps> = ({
         setLoading(false);
       }
     };
-    
+
     loadLeaveRequests();
     
     // Calculer les soldes utilisés basés sur les vraies demandes
@@ -344,15 +352,23 @@ export const LeaveDeclarationTab: React.FC<LeaveDeclarationTabProps> = ({
               <FormControl fullWidth>
                 <InputLabel>Type de congé</InputLabel>
                 <Select
-                  value={newLeave.type || 'PAID_LEAVE'}
+                  value={newLeave.type || (leaveTypes[0]?.code || 'PAID_LEAVE')}
                   onChange={(e) => setNewLeave({ ...newLeave, type: e.target.value as LeaveType })}
                   label="Type de congé"
+                  disabled={leaveTypes.length === 0}
                 >
-                  {LEAVE_TYPES.map((type) => (
-                    <MenuItem key={type.value} value={type.value}>
+                  {leaveTypes.map((type) => (
+                    <MenuItem key={type.id} value={type.code}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        {type.icon}
-                        {type.label}
+                        <Box
+                          sx={{
+                            width: 16,
+                            height: 16,
+                            borderRadius: '50%',
+                            bgcolor: type.color
+                          }}
+                        />
+                        {type.name}
                       </Box>
                     </MenuItem>
                   ))}

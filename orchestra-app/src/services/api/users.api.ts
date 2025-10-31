@@ -130,6 +130,18 @@ export class UsersAPI {
   }
 
   /**
+   * Supprimer définitivement un utilisateur (hard delete)
+   * À utiliser avec précaution !
+   */
+  async hardDeleteUser(id: string): Promise<void> {
+    try {
+      await apiClient.delete(`/users/${id}/permanent`);
+    } catch (error: any) {
+      throw this.handleError(error);
+    }
+  }
+
+  /**
    * Changer le mot de passe de l'utilisateur connecté
    */
   async changePassword(currentPassword: string, newPassword: string): Promise<void> {
@@ -138,6 +150,23 @@ export class UsersAPI {
         currentPassword,
         newPassword,
       });
+    } catch (error: any) {
+      throw this.handleError(error);
+    }
+  }
+
+  /**
+   * Réinitialiser le mot de passe d'un utilisateur (Admin uniquement)
+   * Permet à un admin de changer le password sans connaître l'ancien
+   */
+  async adminResetPassword(userId: string, newPassword: string): Promise<{ message: string; userId: string; email: string }> {
+    try {
+      // apiClient.post() retourne DÉJÀ response.data (voir client.ts ligne 204-207)
+      const result = await apiClient.post('/users/admin-reset-password', {
+        userId,
+        newPassword,
+      });
+      return result;
     } catch (error: any) {
       throw this.handleError(error);
     }

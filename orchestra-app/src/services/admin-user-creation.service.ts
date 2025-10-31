@@ -1,17 +1,5 @@
-import { 
-  signInWithEmailAndPassword
-} from 'firebase/auth';
-import { 
-  doc, 
-  getDoc, 
-  updateDoc, 
-  collection, 
-  query, 
-  where, 
-  getDocs 
-} from 'firebase/firestore';
-import { auth, db } from '../config/firebase';
 import { User, UserRole } from '../types';
+import { usersAPI } from './api';
 
 export interface CreateUserRequest {
   login: string;  // Login unique (nom_prenom)
@@ -24,22 +12,22 @@ export interface CreateUserRequest {
   displayName?: string;
 }
 
+/**
+ * AdminUserCreationService - Migré de Firebase vers API REST
+ *
+ * Ce service gère la création d'utilisateurs par les admins
+ * avec login/password personnalisés.
+ */
 export class AdminUserCreationService {
-  
+
   /**
    * Vérifie si un login est disponible
    */
   async isLoginAvailable(login: string): Promise<boolean> {
     try {
-      // Générer un email temporaire basé sur le login pour Firebase Auth
-      const tempEmail = `${login}@orchestr-a.local`;
-      
-      // Vérifier si un utilisateur avec ce login existe déjà
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, where('login', '==', login));
-      const querySnapshot = await getDocs(q);
-      
-      return querySnapshot.empty;
+      // Appeler l'API backend pour vérifier la disponibilité
+      // Pour l'instant, retourner true (le backend fera la validation)
+      return true;
     } catch (error) {
       console.error('Erreur lors de la vérification du login:', error);
       return false;
@@ -51,208 +39,76 @@ export class AdminUserCreationService {
    * Seuls les admins peuvent utiliser cette méthode
    */
   async createUserWithLogin(request: CreateUserRequest, createdByAdminId: string, adminPassword?: string): Promise<User> {
-    // Vérifier que l'admin qui crée existe et a les bonnes permissions
-    await this.validateAdminPermissions(createdByAdminId);
-    
     // Validation du login (format nom_prenom)
     if (!this.validateLoginFormat(request.login)) {
       throw new Error('Le login doit être au format "nom_prenom" (lettres, chiffres et underscore uniquement).');
     }
-    
+
     try {
-      console.log('🔄 Appel de la Cloud Function HTTP pour créer l\'utilisateur...');
-      
-      // Obtenir le token d'authentification
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        throw new Error('Utilisateur non connecté');
+      // Créer l'utilisateur via l'API REST
+      const createDto: any = {
+        email: `${request.login}@temp.local`, // Email temporaire basé sur le login
+        password: request.password,
+        firstName: request.firstName,
+        lastName: request.lastName,
+        role: request.role,
+      };
+
+      // Ajouter departmentId seulement s'il est fourni et valide (non vide)
+      if (request.department && request.department.trim().length > 0) {
+        createDto.departmentId = request.department;
       }
-      
-      const token = await currentUser.getIdToken();
-      
-      // Appel HTTP à la Cloud Function
-      const response = await fetch('https://us-central1-orchestr-a-3b48e.cloudfunctions.net/createUserWithLogin', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          login: request.login,
-          password: request.password,
-          firstName: request.firstName,
-          lastName: request.lastName,
-          role: request.role,
-          department: request.department,
-          displayName: request.displayName
-        })
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `HTTP ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (!data.success) {
-        throw new Error(data.message || 'Erreur lors de la création');
-      }
-      
-      console.log(`✅ ${data.message}`);
-      
-      // Récupérer les données complètes de l'utilisateur depuis Firestore
-      const userDoc = await getDoc(doc(db, 'users', data.uid));
-      if (!userDoc.exists()) {
-        throw new Error('Utilisateur créé mais profil introuvable');
-      }
-      
-      const userData = { id: userDoc.id, ...userDoc.data() } as User;
-      return userData;
-      
+
+      const newUser = await usersAPI.createUser(createDto);
+
+      return newUser;
+
     } catch (error: any) {
-      console.error('Erreur lors de la création utilisateur:', error);
-      
-      // Messages d'erreur spécifiques
-      if (error.code === 'auth/email-already-in-use') {
-        throw new Error('Ce login est déjà utilisé.');
-      } else if (error.code === 'auth/weak-password') {
-        throw new Error('Le mot de passe doit contenir au moins 6 caractères.');
-      } else if (error.code === 'auth/invalid-email') {
-        throw new Error('Format de login invalide.');
+      console.error('Erreur lors de la création de l\'utilisateur:', error);
+
+      // Gérer les erreurs spécifiques
+      if (error.response?.data?.message) {
+        if (error.response.data.message.includes('already exists')) {
+          throw new Error(`Le login "${request.login}" est déjà utilisé.`);
+        }
+        throw new Error(error.response.data.message);
       }
-      
-      throw new Error(`Erreur lors de la création : ${error.message}`);
+
+      throw new Error(error.message || 'Erreur lors de la création de l\'utilisateur');
     }
   }
-  
+
   /**
-   * Service de connexion avec login/password au lieu d'email/password
-   */
-  async signInWithLogin(login: string, password: string): Promise<User> {
-    try {
-      // 1. Récupérer l'email interne associé au login
-      const internalEmail = this.generateInternalEmail(login);
-      
-      // 2. Se connecter avec Firebase Auth
-      const credential = await signInWithEmailAndPassword(auth, internalEmail, password);
-      
-      // 3. Récupérer le profil utilisateur depuis Firestore
-      const userDocRef = doc(db, 'users', credential.user.uid);
-      const userDoc = await getDoc(userDocRef);
-      
-      if (!userDoc.exists()) {
-        throw new Error('Profil utilisateur introuvable.');
-      }
-      
-      const userData = { id: userDoc.id, ...userDoc.data() } as User;
-      
-      // 4. Vérifier que l'utilisateur est actif
-      if (!userData.isActive) {
-        throw new Error('Ce compte utilisateur est désactivé.');
-      }
-      
-      // 5. Mettre à jour la dernière connexion
-      await updateDoc(userDocRef, {
-        lastLoginAt: new Date()
-      });
-      
-      return userData;
-      
-    } catch (error: any) {
-      console.error('Erreur lors de la connexion avec login:', error);
-      
-      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-        throw new Error('Login ou mot de passe incorrect.');
-      }
-      
-      throw error;
-    }
-  }
-  
-  /**
-   * Met à jour le mot de passe d'un utilisateur (admin uniquement)
-   */
-  async updateUserPassword(userId: string, newPassword: string, adminId: string): Promise<void> {
-    await this.validateAdminPermissions(adminId);
-    
-    // Note: Firebase Admin SDK serait nécessaire pour changer le mot de passe d'un autre utilisateur
-    // Pour l'instant, on peut seulement guider l'utilisateur vers la réinitialisation
-    throw new Error('La mise à jour de mot de passe nécessite Firebase Admin SDK. Utilisez la fonction de réinitialisation.');
-  }
-  
-  // ===== MÉTHODES PRIVÉES =====
-  
-  /**
-   * Valide les permissions d'administration
-   */
-  private async validateAdminPermissions(adminId: string): Promise<void> {
-    const adminDoc = await getDoc(doc(db, 'users', adminId));
-    if (!adminDoc.exists()) {
-      throw new Error('Administrateur introuvable.');
-    }
-    
-    const adminData = adminDoc.data() as User;
-    // Permettre aux rôles admin ET responsable de créer des utilisateurs
-    if (adminData.role !== 'admin' && adminData.role !== 'responsable') {
-      throw new Error('Seuls les administrateurs et responsables peuvent créer des utilisateurs.');
-    }
-    
-    if (!adminData.isActive) {
-      throw new Error('Compte administrateur inactif.');
-    }
-  }
-  
-  /**
-   * Valide le format du login
+   * Valide le format du login (nom_prenom)
    */
   private validateLoginFormat(login: string): boolean {
-    // Regex : lettres, chiffres, underscore, minimum 3 caractères
-    const loginRegex = /^[a-zA-Z0-9_]{3,50}$/;
-    return loginRegex.test(login);
+    // Format: lettres, chiffres et underscore uniquement
+    const loginRegex = /^[a-zA-Z0-9_]+$/;
+    return loginRegex.test(login) && login.length >= 3;
   }
-  
+
   /**
-   * Génère un email interne pour Firebase Auth basé sur le login
+   * Valide que l'admin connecté a les permissions nécessaires
+   * Note: La validation des permissions est maintenant faite côté backend
    */
-  private generateInternalEmail(login: string): string {
-    return `${login}@orchestr-a.internal`;
+  private async validateAdminPermissions(adminId: string): Promise<void> {
+    // La validation est maintenant faite côté backend via les guards
+    // On ne fait rien ici, juste pour compatibilité
+    return Promise.resolve();
   }
-  
+
   /**
-   * Suggère un login basé sur prénom/nom
+   * Liste tous les utilisateurs (pour les admins)
    */
-  static suggestLogin(firstName: string, lastName: string): string {
-    const cleanName = (name: string) => name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // Supprimer les accents
-      .replace(/[^a-z0-9]/g, ''); // Garder seulement lettres/chiffres
-    
-    return `${cleanName(firstName)}_${cleanName(lastName)}`;
-  }
-  
-  /**
-   * Génère un mot de passe sécurisé aléatoire
-   */
-  static generateSecurePassword(length: number = 12): string {
-    const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
-    let password = '';
-    
-    // Garantir au moins un caractère de chaque type
-    password += 'abcdefghijklmnopqrstuvwxyz'[Math.floor(Math.random() * 26)]; // minuscule
-    password += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[Math.floor(Math.random() * 26)]; // majuscule
-    password += '0123456789'[Math.floor(Math.random() * 10)]; // chiffre
-    password += '!@#$%^&*'[Math.floor(Math.random() * 8)]; // spécial
-    
-    // Compléter avec caractères aléatoires
-    for (let i = 4; i < length; i++) {
-      password += charset[Math.floor(Math.random() * charset.length)];
+  async listAllUsers(): Promise<User[]> {
+    try {
+      return await usersAPI.getAllUsers();
+    } catch (error) {
+      console.error('Erreur lors de la récupération des utilisateurs:', error);
+      return [];
     }
-    
-    // Mélanger les caractères
-    return password.split('').sort(() => 0.5 - Math.random()).join('');
   }
 }
 
+// Export une instance singleton
 export const adminUserCreationService = new AdminUserCreationService();

@@ -250,7 +250,7 @@ export const QuickTimeEntryWidget: React.FC<QuickTimeEntryWidgetProps> = ({
                         {task.title}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {task.projectId ? (projects[task.projectId] || 'Projet inconnu') : 'Tâche simple'}
+                        {task.projectId ? (projects[task.projectId] || 'Projet inconnu') : 'Tâche personnelle'}
                       </Typography>
                     </Box>
                     <Chip 

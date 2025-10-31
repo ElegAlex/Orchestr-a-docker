@@ -97,11 +97,15 @@ export const UserConfigDialog: React.FC<UserConfigDialogProps> = ({
   // Initialiser le formulaire quand le dialog s'ouvre
   useEffect(() => {
     if (open && user) {
+      console.log('🔍 [useEffect] Initializing form with user:', user.id, 'contract:', contract);
       if (contract) {
+        console.log('🔍 [useEffect] Setting existing contract:', contract);
         setContractForm({
           ...contract,
+          userId: user.id, // CRITICAL: Assurer que userId est toujours défini
         });
       } else {
+        console.log('🔍 [useEffect] Creating default contract');
         // Contrat par défaut
         setContractForm({
           userId: user.id,
@@ -118,14 +122,22 @@ export const UserConfigDialog: React.FC<UserConfigDialogProps> = ({
   }, [open, user, contract]);
 
   const handleSave = async () => {
-    if (!user || !contractForm.userId) return;
+    console.log('🔍 [handleSave] Called with:', { user, contractForm });
+    console.log('🔍 [handleSave] userId check:', { hasUser: !!user, userId: contractForm.userId });
+
+    if (!user || !contractForm.userId) {
+      console.log('❌ [handleSave] Early return - missing user or userId');
+      return;
+    }
 
     try {
       setSaving(true);
+      console.log('🔍 [handleSave] Calling onSave with:', contractForm);
       await onSave(contractForm);
+      console.log('✅ [handleSave] onSave succeeded');
       onClose();
     } catch (error) {
-      console.error('Erreur lors de la sauvegarde:', error);
+      console.error('❌ [handleSave] Error:', error);
     } finally {
       setSaving(false);
     }
@@ -172,7 +184,7 @@ export const UserConfigDialog: React.FC<UserConfigDialogProps> = ({
                 Configuration de {user.displayName}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                {user.department} • {user.email}
+                {typeof user.department === 'object' ? user.department?.name : user.department} • {user.email}
               </Typography>
             </Box>
           </Box>

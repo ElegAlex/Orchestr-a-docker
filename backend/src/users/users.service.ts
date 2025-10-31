@@ -366,6 +366,36 @@ export class UsersService {
   }
 
   /**
+   * Réinitialiser le mot de passe d'un utilisateur (Admin seulement)
+   * Permet à un admin de changer le password sans connaître l'ancien
+   */
+  async adminResetPassword(targetUserId: string, newPassword: string) {
+    // Récupérer l'utilisateur cible
+    const user = await this.prisma.user.findUnique({
+      where: { id: targetUserId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Utilisateur non trouvé');
+    }
+
+    // Hash du nouveau mot de passe
+    const newPasswordHash = await bcrypt.hash(newPassword, 10);
+
+    // Mettre à jour
+    await this.prisma.user.update({
+      where: { id: targetUserId },
+      data: { passwordHash: newPasswordHash },
+    });
+
+    return {
+      message: 'Mot de passe réinitialisé avec succès',
+      userId: targetUserId,
+      email: user.email
+    };
+  }
+
+  /**
    * Récupérer les statistiques d'un utilisateur
    */
   async getUserStats(userId: string) {

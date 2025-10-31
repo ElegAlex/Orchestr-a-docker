@@ -41,11 +41,13 @@ import { Project, ProjectStatus, Priority, ProjectCategory, Task } from '../type
 import { projectService } from '../services/project.service';
 import ProjectImportDialog from '../components/project/ProjectImportDialog';
 import { ImportResult } from '../services/import.service';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { normalizeProjectsFromBackend } from '../utils/status.utils';
+import { useDepartmentFilter } from '../hooks/useDepartmentFilter';
 
 export const Projects: React.FC = () => {
   const navigate = useNavigate();
+  const departmentFilter = useDepartmentFilter(); // 🔒 Hook d'isolation par département
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [filteredProjects, setFilteredProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,62 +65,19 @@ export const Projects: React.FC = () => {
   const loadProjects = async () => {
     try {
       setLoading(true);
-      const projectsData = await projectService.getAllProjects();
+      // 🔒 Filtrage par département (null pour ADMIN/RESPONSABLE, departmentId pour les autres)
+      const projectsData = await projectService.getAllProjects(departmentFilter);
 
-      // Recalculer le progress de chaque projet à la volée en excluant les sous-tâches
-      const projectsWithRecalculatedProgress = await Promise.all(
-        projectsData.map(async (project) => {
-          try {
-            const tasksQuery = query(
-              collection(db, 'tasks'),
-              where('projectId', '==', project.id)
-            );
-            const tasksSnapshot = await getDocs(tasksQuery);
+      // Normaliser les statuts backend (ACTIVE) → frontend (active)
+      const normalizedProjects = normalizeProjectsFromBackend(projectsData);
 
-            if (tasksSnapshot.empty) {
-              return { ...project, progress: 0 };
-            }
+      // Les projets viennent déjà avec leur progress de la BDD
+      const projectsWithProgress = normalizedProjects.map(project => ({
+        ...project,
+        progress: project.progress ?? 0
+      }));
 
-            let totalTasks = 0;
-            let completedTasks = 0;
-            let totalStoryPoints = 0;
-            let completedStoryPoints = 0;
-
-            tasksSnapshot.docs.forEach(doc => {
-              const task = doc.data() as Task;
-
-              // Exclure les sous-tâches
-              if (task.parentTaskId) {
-                return;
-              }
-
-              totalTasks++;
-              const storyPoints = task.storyPoints || 1;
-              totalStoryPoints += storyPoints;
-
-              if (task.status === 'DONE') {
-                completedTasks++;
-                completedStoryPoints += storyPoints;
-              }
-            });
-
-            // Calculer le progrès
-            let calculatedProgress = 0;
-            if (totalStoryPoints > 0) {
-              calculatedProgress = Math.round((completedStoryPoints / totalStoryPoints) * 100);
-            } else if (totalTasks > 0) {
-              calculatedProgress = Math.round((completedTasks / totalTasks) * 100);
-            }
-
-            return { ...project, progress: calculatedProgress };
-          } catch (error) {
-            console.error(`Error calculating progress for project ${project.id}:`, error);
-            return project;
-          }
-        })
-      );
-
-      setProjects(projectsWithRecalculatedProgress);
+      setProjects(projectsWithProgress);
     } catch (error) {
       console.error('Error loading projects:', error);
     } finally {
@@ -132,9 +91,9 @@ export const Projects: React.FC = () => {
     // Filtrage par terme de recherche
     if (searchTerm) {
       filtered = filtered.filter(project =>
-        project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        project.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        project.code.toLowerCase().includes(searchTerm.toLowerCase())
+        project.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        project.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        project.code?.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
 
@@ -164,7 +123,7 @@ export const Projects: React.FC = () => {
 
   useEffect(() => {
     loadProjects();
-  }, []);
+  }, [departmentFilter]); // 🔒 Recharger quand le filtre département change
 
   useEffect(() => {
     filterProjects();
@@ -200,7 +159,9 @@ export const Projects: React.FC = () => {
           selectedProject.id,
           `${selectedProject.name} (Copie)`
         );
-        setProjects([duplicated, ...projects]);
+        // Normaliser le statut du projet dupliqué
+        const normalizedDuplicated = normalizeProjectsFromBackend([duplicated])[0];
+        setProjects([normalizedDuplicated, ...projects]);
         handleMenuClose();
       } catch (error) {
         console.error('Error duplicating project:', error);
@@ -273,7 +234,7 @@ export const Projects: React.FC = () => {
       completed: 'Terminé',
       cancelled: 'Annulé'
     };
-    return labels[status];
+    return labels[status] || status || 'N/A';
   };
 
   if (loading) {
@@ -393,7 +354,7 @@ export const Projects: React.FC = () => {
                         {project.name}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        {project.code}
+                        {project.code || 'N/A'}
                       </Typography>
                       <Typography
                         variant="caption"
@@ -424,7 +385,7 @@ export const Projects: React.FC = () => {
                     WebkitLineClamp: 2,
                     WebkitBoxOrient: 'vertical',
                   }}>
-                    {project.description}
+                    {project.description || 'Aucune description'}
                   </Typography>
                 </Box>
 
@@ -451,11 +412,11 @@ export const Projects: React.FC = () => {
                 <Box sx={{ flex: '0 0 150px' }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                     <Typography variant="caption">Progression</Typography>
-                    <Typography variant="caption" fontWeight="bold">{project.progress}%</Typography>
+                    <Typography variant="caption" fontWeight="bold">{project.progress ?? 0}%</Typography>
                   </Box>
                   <LinearProgress
                     variant="determinate"
-                    value={project.progress}
+                    value={project.progress ?? 0}
                     sx={{ height: 6, borderRadius: 3 }}
                   />
                 </Box>
@@ -463,9 +424,9 @@ export const Projects: React.FC = () => {
                 {/* Équipe */}
                 <Box sx={{ flex: '0 0 auto' }}>
                   <AvatarGroup max={4} sx={{ '& .MuiAvatar-root': { width: 28, height: 28, fontSize: '0.875rem' } }}>
-                    {project.teamMembers && project.teamMembers.map((member) => (
+                    {project.teamMembers?.map((member) => (
                       <Avatar key={typeof member === 'string' ? member : member.userId}>
-                        {(typeof member === 'string' ? member[0] : member.userId[0]).toUpperCase()}
+                        {(typeof member === 'string' ? member[0] : member.userId[0])?.toUpperCase()}
                       </Avatar>
                     ))}
                   </AvatarGroup>

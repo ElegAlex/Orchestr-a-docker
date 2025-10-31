@@ -29,7 +29,7 @@ export class FilterTaskDto {
     example: 'b387b5f3-6c78-440f-b500-f17776a177af',
   })
   @IsOptional()
-  @IsUUID('all', { message: 'L\'ID du projet doit être un UUID valide' })
+  @IsString()
   projectId?: string;
 
   @ApiPropertyOptional({
@@ -39,6 +39,14 @@ export class FilterTaskDto {
   @IsOptional()
   @IsString()
   assigneeId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Filtrer par département (via l\'assignee)',
+    example: 'general-dept-default-001',
+  })
+  @IsOptional()
+  @IsString()
+  departmentId?: string;
 
   @ApiPropertyOptional({
     description: 'Filtrer par statut',

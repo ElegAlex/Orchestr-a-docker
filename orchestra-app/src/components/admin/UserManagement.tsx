@@ -39,6 +39,7 @@ import {
   CheckCircle as ActiveIcon,
   Refresh as RefreshIcon,
   VpnKey as PasswordIcon,
+  CloudUpload as UploadIcon,
 } from '@mui/icons-material';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../store';
@@ -50,6 +51,9 @@ import { Service } from '../../types/service';
 import { getRoleDisplayLabel, getRoleColor } from '../../utils/roleUtils';
 import { auth } from '../../config/firebase';
 import { PasswordResetModal } from './PasswordResetModal';
+import { useDepartmentFilter } from '../../hooks/useDepartmentFilter';
+import { CSVImportDialog, ImportedUser } from './CSVImportDialog';
+import { adminUserCreationService } from '../../services/admin-user-creation.service';
 
 interface CreateUserData {
   firstName: string;
@@ -77,10 +81,16 @@ const serviceService = new ServiceService();
 
 export const UserManagement: React.FC = () => {
   const currentUser = useSelector((state: RootState) => state.auth.user);
+  const departmentFilter = useDepartmentFilter(); // 🔒 Hook d'isolation par département
 
   // Vérifier si l'utilisateur actuel peut modifier les rôles (seuls admin et responsable)
   const canManageUserRoles = () => {
-    return currentUser?.role === 'admin' || currentUser?.role === 'responsable';
+    return currentUser?.role === 'ADMIN' || currentUser?.role === 'RESPONSABLE';
+  };
+
+  // Vérifier si l'utilisateur actuel peut supprimer définitivement (ADMIN ou RESPONSABLE)
+  const canDeletePermanently = () => {
+    return currentUser?.role === 'ADMIN' || currentUser?.role === 'RESPONSABLE';
   };
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,6 +98,7 @@ export const UserManagement: React.FC = () => {
   const [services, setServices] = useState<Service[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [batchDialogOpen, setBatchDialogOpen] = useState(false);
+  const [csvDialogOpen, setCsvDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [passwordResetUser, setPasswordResetUser] = useState<User | null>(null);
   const [passwordResetOpen, setPasswordResetOpen] = useState(false);
@@ -98,16 +109,16 @@ export const UserManagement: React.FC = () => {
     firstName: '',
     lastName: '',
     email: '',
-    role: 'contributor',
+    role: 'CONTRIBUTOR',
     department: '',
     password: '',
   });
 
   const [formData, setFormData] = useState<CreateUserData>(createEmptyFormData());
-  
+
   // États pour la création en lot
   const [batchData, setBatchData] = useState<BatchCreateData>({
-    users: [{ firstName: '', lastName: '', role: 'contributor', department: '', service: '' }],
+    users: [{ firstName: '', lastName: '', role: 'CONTRIBUTOR', department: '', service: '' }],
     commonPassword: ''
   });
 
@@ -115,12 +126,12 @@ export const UserManagement: React.FC = () => {
   const [showBatchPassword, setShowBatchPassword] = useState(false);
 
   const roles: { value: UserRole; label: string }[] = [
-    { value: 'admin', label: 'Administrateur' },
-    { value: 'responsable', label: 'Responsable' },
-    { value: 'manager', label: 'Manager' },
-    { value: 'teamLead', label: 'Référent technique' },
-    { value: 'contributor', label: 'Contributeur' },
-    { value: 'viewer', label: 'Observateur' },
+    { value: 'ADMIN', label: 'Administrateur' },
+    { value: 'RESPONSABLE', label: 'Responsable' },
+    { value: 'MANAGER', label: 'Manager' },
+    { value: 'TEAM_LEAD', label: 'Référent technique' },
+    { value: 'CONTRIBUTOR', label: 'Contributeur' },
+    { value: 'VIEWER', label: 'Observateur' },
   ];
 
   // Les départements et services sont maintenant chargés dynamiquement
@@ -128,12 +139,13 @@ export const UserManagement: React.FC = () => {
   useEffect(() => {
     loadUsers();
     loadDepartmentsAndServices();
-  }, []);
+  }, [departmentFilter]); // 🔒 Recharger quand le filtre département change
 
   const loadUsers = async () => {
     try {
       setLoading(true);
-      const usersList = await userService.getAllUsers();
+      // 🔒 Passe le filtre de département aux API (null pour ADMIN/RESPONSABLE, departmentId pour les autres)
+      const usersList = await userService.getAllUsers(departmentFilter);
       setUsers(usersList);
     } catch (error) {
       console.error('Erreur lors du chargement des utilisateurs:', error);
@@ -189,12 +201,16 @@ export const UserManagement: React.FC = () => {
 
   const openEditDialog = (user: User) => {
     setEditingUser(user);
+    const departmentValue = typeof user.department === 'object' && user.department !== null
+      ? (user.department as any).name || ''
+      : user.department || '';
+
     setFormData({
       firstName: user.firstName || '',
       lastName: user.lastName || '',
       email: user.email || '',
       role: user.role,
-      department: user.department || '',
+      department: departmentValue,
       password: '',
     });
     setShowPassword(false);
@@ -204,6 +220,59 @@ export const UserManagement: React.FC = () => {
   const handleCloseDialog = () => {
     setDialogOpen(false);
     resetModalState();
+  };
+
+  const handleCsvImport = async (users: ImportedUser[], commonPassword: string): Promise<void> => {
+    try {
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const user of users) {
+        try {
+          // Générer le login à partir du prénom et nom
+          const login = `${user.firstName.toLowerCase()}_${user.lastName.toLowerCase()}`.replace(/[^a-z_]/g, '');
+
+          // Utiliser le mot de passe individuel ou le mot de passe commun
+          const password = user.password || commonPassword;
+
+          // Créer l'utilisateur via le service admin
+          await adminUserCreationService.createUserWithLogin(
+            {
+              login,
+              password,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              role: user.role,
+              department: user.department,
+              service: user.service,
+            },
+            currentUser?.id || ''
+          );
+
+          user.status = 'success';
+          successCount++;
+        } catch (error: any) {
+          console.error(`Erreur lors de la création de ${user.firstName} ${user.lastName}:`, error);
+          user.status = 'error';
+          user.error = error.message || 'Erreur inconnue';
+          errorCount++;
+        }
+      }
+
+      // Rafraîchir la liste des utilisateurs
+      await loadUsers();
+
+      // Afficher un message de résumé
+      if (errorCount === 0) {
+        showSnackbar(`${successCount} utilisateur(s) créé(s) avec succès`, 'success');
+      } else {
+        showSnackbar(`${successCount} créé(s), ${errorCount} erreur(s)`, 'error');
+      }
+    } catch (error: any) {
+      console.error('Erreur lors de l\'import CSV:', error);
+      showSnackbar('Erreur lors de l\'import CSV', 'error');
+      throw error;
+    }
   };
 
   const generateAlternativeEmail = (firstName: string, lastName: string, suffix: string = ''): string => {
@@ -261,17 +330,15 @@ export const UserManagement: React.FC = () => {
         
         const newLogin = formData.email.split('@')[0];
         
-        // Mise à jour des données dans Firestore
+        // Mise à jour des données
         const userData = {
           firstName: formData.firstName,
           lastName: formData.lastName,
-          displayName: `${formData.firstName} ${formData.lastName}`,
           role: formData.role,
-          department: formData.department,
+          departmentId: formData.department || null, // Le backend attend departmentId (UUID)
           email: formData.email,
-          login: newLogin
         };
-        
+
         await userService.updateUser(editingUser.id, userData);
         showSnackbar('Utilisateur mis à jour avec succès');
       } else {
@@ -323,14 +390,14 @@ export const UserManagement: React.FC = () => {
   };
 
   const handleDeleteUser = async (user: User) => {
-    if (window.confirm(`Êtes-vous sûr de vouloir supprimer l'utilisateur ${user.displayName} ?`)) {
+    if (window.confirm(`⚠️ ATTENTION : Êtes-vous sûr de vouloir SUPPRIMER DÉFINITIVEMENT l'utilisateur ${user.displayName} ?\n\nCette action est IRRÉVERSIBLE et supprimera toutes les données associées.\n\nPour désactiver temporairement l'utilisateur, utilisez plutôt le bouton "Désactiver".`)) {
       try {
-        await userService.deleteUser(user.id);
-        showSnackbar('Utilisateur supprimé avec succès');
+        await userService.hardDeleteUser(user.id);
+        showSnackbar('Utilisateur supprimé définitivement avec succès');
         loadUsers();
       } catch (error) {
-        console.error('Erreur lors de la suppression:', error);
-        showSnackbar('Erreur lors de la suppression', 'error');
+        console.error('Erreur lors de la suppression définitive:', error);
+        showSnackbar('Erreur lors de la suppression définitive', 'error');
       }
     }
   };
@@ -341,7 +408,7 @@ export const UserManagement: React.FC = () => {
   const addBatchUser = () => {
     setBatchData(prev => ({
       ...prev,
-      users: [...prev.users, { firstName: '', lastName: '', role: 'contributor', department: '', service: '' }]
+      users: [...prev.users, { firstName: '', lastName: '', role: 'CONTRIBUTOR', department: '', service: '' }]
     }));
   };
   
@@ -413,7 +480,7 @@ export const UserManagement: React.FC = () => {
       
       setBatchDialogOpen(false);
       setBatchData({
-        users: [{ firstName: '', lastName: '', role: 'contributor', department: '', service: '' }],
+        users: [{ firstName: '', lastName: '', role: 'CONTRIBUTOR', department: '', service: '' }],
         commonPassword: ''
       });
       
@@ -462,6 +529,14 @@ export const UserManagement: React.FC = () => {
           >
             Création en lot
           </Button>
+          <Button
+            variant="outlined"
+            startIcon={<UploadIcon />}
+            onClick={() => setCsvDialogOpen(true)}
+            color="secondary"
+          >
+            Import CSV
+          </Button>
         </Box>
       </Box>
 
@@ -500,15 +575,19 @@ export const UserManagement: React.FC = () => {
                 </TableCell>
                 <TableCell>{user.email}</TableCell>
                 <TableCell>
-                  <Chip 
-                    label={getRoleDisplayLabel(user.role)} 
+                  <Chip
+                    label={getRoleDisplayLabel(user.role)}
                     color={getRoleColor(user.role)}
                     size="small"
                   />
                 </TableCell>
-                <TableCell>{user.department || '-'}</TableCell>
                 <TableCell>
-                  <Chip 
+                  {typeof user.department === 'object' && user.department !== null
+                    ? (user.department as any).name || '-'
+                    : user.department || '-'}
+                </TableCell>
+                <TableCell>
+                  <Chip
                     label={user.loginType === 'internal' ? 'Interne' : 'Email'}
                     variant="outlined"
                     size="small"
@@ -551,15 +630,18 @@ export const UserManagement: React.FC = () => {
                         <PasswordIcon />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title="Supprimer">
-                      <IconButton
-                        size="small"
-                        onClick={() => handleDeleteUser(user)}
-                        color="error"
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </Tooltip>
+                    {/* Bouton de suppression définitive - Réservé aux ADMIN et RESPONSABLE */}
+                    {canDeletePermanently() && (
+                      <Tooltip title="Supprimer définitivement">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleDeleteUser(user)}
+                          color="error"
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                   </Box>
                 </TableCell>
               </TableRow>
@@ -653,7 +735,7 @@ export const UserManagement: React.FC = () => {
                     <em>Aucun</em>
                   </MenuItem>
                   {departments.map((dept) => (
-                    <MenuItem key={dept.id} value={dept.name}>
+                    <MenuItem key={dept.id} value={dept.id}>
                       {dept.name}
                     </MenuItem>
                   ))}
@@ -802,7 +884,7 @@ export const UserManagement: React.FC = () => {
                             <em>Aucun</em>
                           </MenuItem>
                           {departments.map((dept) => (
-                            <MenuItem key={dept.id} value={dept.name}>
+                            <MenuItem key={dept.id} value={dept.id}>
                               {dept.name}
                             </MenuItem>
                           ))}
@@ -865,6 +947,15 @@ export const UserManagement: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* CSV Import Dialog */}
+      <CSVImportDialog
+        open={csvDialogOpen}
+        onClose={() => setCsvDialogOpen(false)}
+        onImport={handleCsvImport}
+        departments={departments.map(d => ({ id: d.id, name: d.name }))}
+        services={services.map(s => ({ id: s.id, name: s.name }))}
+      />
 
       {/* Snackbar */}
       {/* Modal de réinitialisation du mot de passe */}

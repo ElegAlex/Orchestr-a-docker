@@ -24,12 +24,12 @@ import {
   EventBusy as LeaveIcon,
   Person as PersonIcon,
 } from '@mui/icons-material';
-import { Timestamp } from 'firebase/firestore';
 import { User, LeaveType } from '../../types';
 import { leaveService } from '../../services/leave.service';
 import { userService } from '../../services/user.service';
 import { userServiceAssignmentService } from '../../services/user-service-assignment.service';
 import { permissionsService } from '../../services/permissions.service';
+import { leaveTypesAPI, LeaveTypeConfig } from '../../services/api/leaveTypes.api';
 
 interface AdminLeaveDeclarationModalProps {
   open: boolean;
@@ -37,18 +37,6 @@ interface AdminLeaveDeclarationModalProps {
   onClose: () => void;
   onSave: () => void;
 }
-
-const LEAVE_TYPE_LABELS: Record<LeaveType, { label: string; emoji: string; color: string }> = {
-  PAID_LEAVE: { label: 'Congé payé', emoji: '🏖️', color: '#4caf50' },
-  RTT: { label: 'RTT', emoji: '🎯', color: '#2196f3' },
-  SICK_LEAVE: { label: 'Congé maladie', emoji: '🏥', color: '#ff9800' },
-  MATERNITY_LEAVE: { label: 'Congé maternité', emoji: '👶', color: '#e91e63' },
-  PATERNITY_LEAVE: { label: 'Congé paternité', emoji: '👶', color: '#9c27b0' },
-  EXCEPTIONAL_LEAVE: { label: 'Congé exceptionnel', emoji: '⭐', color: '#00bcd4' },
-  CONVENTIONAL_LEAVE: { label: 'Congé conventionnel', emoji: '📋', color: '#8bc34a' },
-  UNPAID_LEAVE: { label: 'Congé sans solde', emoji: '💼', color: '#607d8b' },
-  TRAINING: { label: 'Formation', emoji: '📚', color: '#3f51b5' },
-};
 
 export const AdminLeaveDeclarationModal: React.FC<AdminLeaveDeclarationModalProps> = ({
   open,
@@ -67,10 +55,30 @@ export const AdminLeaveDeclarationModal: React.FC<AdminLeaveDeclarationModalProp
 
   // États de chargement et erreur
   const [availableUsers, setAvailableUsers] = useState<User[]>([]);
+  const [leaveTypes, setLeaveTypes] = useState<LeaveTypeConfig[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [leaveBalance, setLeaveBalance] = useState<any>(null);
+
+  // Charger les types de congés configurables
+  useEffect(() => {
+    const loadLeaveTypes = async () => {
+      try {
+        const types = await leaveTypesAPI.getActive();
+        setLeaveTypes(types);
+        // Initialiser le type par défaut avec le premier type actif
+        if (types.length > 0 && !leaveType) {
+          setLeaveType(types[0].code as LeaveType);
+        }
+      } catch (error) {
+        console.error('Error loading leave types:', error);
+      }
+    };
+    if (open) {
+      loadLeaveTypes();
+    }
+  }, [open]);
 
   // Charger les utilisateurs disponibles selon le rôle
   useEffect(() => {
@@ -200,7 +208,7 @@ export const AdminLeaveDeclarationModal: React.FC<AdminLeaveDeclarationModalProp
   };
 
   const selectedUser = availableUsers.find(u => u.id === selectedUserId);
-  const leaveTypeInfo = LEAVE_TYPE_LABELS[leaveType];
+  const selectedLeaveType = leaveTypes.find(t => t.code === leaveType);
 
   // Calculer le solde restant pour le type sélectionné
   const getRemainingBalance = () => {
@@ -292,19 +300,23 @@ export const AdminLeaveDeclarationModal: React.FC<AdminLeaveDeclarationModalProp
               value={leaveType}
               onChange={handleLeaveTypeChange}
               label="Type de congé *"
-              disabled={!selectedUserId}
+              disabled={!selectedUserId || leaveTypes.length === 0}
             >
-              {(Object.keys(LEAVE_TYPE_LABELS) as LeaveType[]).map((type) => {
-                const info = LEAVE_TYPE_LABELS[type];
-                return (
-                  <MenuItem key={type} value={type}>
-                    <Stack direction="row" alignItems="center" spacing={1}>
-                      <Typography>{info.emoji}</Typography>
-                      <Typography>{info.label}</Typography>
-                    </Stack>
-                  </MenuItem>
-                );
-              })}
+              {leaveTypes.map((type) => (
+                <MenuItem key={type.id} value={type.code}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Box
+                      sx={{
+                        width: 16,
+                        height: 16,
+                        borderRadius: '50%',
+                        bgcolor: type.color
+                      }}
+                    />
+                    <Typography>{type.name}</Typography>
+                  </Stack>
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
 
@@ -315,14 +327,16 @@ export const AdminLeaveDeclarationModal: React.FC<AdminLeaveDeclarationModalProp
                 Solde de congés ({selectedUser?.firstName} {selectedUser?.lastName})
               </Typography>
               <Stack direction="row" spacing={2} flexWrap="wrap">
-                <Chip
-                  label={`${leaveTypeInfo.emoji} ${leaveTypeInfo.label}: ${getRemainingBalance()} jour(s)`}
-                  sx={{
-                    bgcolor: leaveTypeInfo.color,
-                    color: 'white',
-                    fontWeight: 'bold'
-                  }}
-                />
+                {selectedLeaveType && (
+                  <Chip
+                    label={`${selectedLeaveType.name}: ${getRemainingBalance()} jour(s)`}
+                    sx={{
+                      bgcolor: selectedLeaveType.color,
+                      color: 'white',
+                      fontWeight: 'bold'
+                    }}
+                  />
+                )}
               </Stack>
             </Box>
           )}

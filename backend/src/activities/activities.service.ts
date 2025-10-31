@@ -83,10 +83,12 @@ export class ActivitiesService {
 
   /**
    * Récupérer toutes les activités avec filtrage et pagination
+   * 🔒 Isolation par département : Filtre via l'utilisateur du département
    */
   async findAll(filterDto: FilterActivityDto) {
     const {
       userId,
+      departmentId,
       action,
       resource,
       projectId,
@@ -106,6 +108,13 @@ export class ActivitiesService {
 
     if (userId) {
       where.userId = userId;
+    }
+
+    // 🔒 Filtre par département : activités d'utilisateurs du département
+    if (departmentId) {
+      where.user = {
+        departmentId: departmentId,
+      };
     }
 
     if (action) {

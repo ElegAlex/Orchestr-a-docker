@@ -24,10 +24,12 @@ export class APIClient {
 
   constructor(config?: APIClientConfig) {
     this.client = axios.create({
-      baseURL: config?.baseURL || process.env.REACT_APP_API_URL || 'http://localhost:3000',
+      baseURL: config?.baseURL || process.env.REACT_APP_API_URL || 'http://localhost:4000/api',
       timeout: config?.timeout || 10000,
       headers: {
         'Content-Type': 'application/json',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
       },
     });
 
@@ -168,6 +170,27 @@ export class APIClient {
   public clearTokens(): void {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
+  }
+
+  /**
+   * Vérifier si le token JWT est expiré
+   */
+  public isTokenExpired(token: string | null): boolean {
+    if (!token) return true;
+
+    try {
+      // Décoder le payload du JWT (partie entre les deux points)
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const exp = payload.exp;
+
+      if (!exp) return true;
+
+      // Vérifier si le token expire dans moins de 5 secondes
+      return Date.now() >= exp * 1000 - 5000;
+    } catch (error) {
+      // En cas d'erreur de décodage, considérer le token comme invalide
+      return true;
+    }
   }
 
   /**

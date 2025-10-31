@@ -1,17 +1,5 @@
-import {
-  collection,
-  doc,
-  getDocs,
-  getDoc,
-  addDoc,
-  updateDoc,
-  query,
-  where,
-  orderBy,
-  Timestamp
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
-import { Skill } from '../types';
+import { usersAPI } from './api/users.api';
+import { Skill, User } from '../types';
 
 export interface SimpleUser {
   id: string;
@@ -27,53 +15,30 @@ export interface SimpleUser {
 }
 
 class SimpleUserService {
+  /**
+   * Récupère tous les utilisateurs actifs
+   * Migration complète vers API REST backend (17 oct 2025)
+   */
   async getAllUsers(): Promise<SimpleUser[]> {
     try {
-      // Requête simplifiée sans orderBy pour éviter le besoin d'index
-      const q = query(
-        collection(db, 'users'),
-        where('isActive', '==', true)
-      );
-      
-      const querySnapshot = await getDocs(q);
-      
-      // Trier manuellement les résultats par displayName après la requête
-      const users = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        // Calculer la charge de travail réelle (0% par défaut sans tâches)
-        const workload = 0;
-        
-        return {
-          id: doc.id,
-          displayName: data.displayName || `${data.firstName} ${data.lastName}`,
-          firstName: data.firstName || '',
-          lastName: data.lastName || '',
-          email: data.email || '',
-          role: data.role || 'contributor',
-          department: data.department || 'Non spécifié',
-          isActive: data.isActive !== false,
-          skills: (data.skills || []).map((skill: any) => {
-            // Si c'est déjà un objet Skill, le conserver tel quel
-            if (skill && typeof skill === 'object' && skill.id) {
-              return skill as Skill;
-            }
-            // Si c'est une string, créer un objet Skill minimal
-            if (typeof skill === 'string') {
-              return {
-                id: `legacy_${Date.now()}_${Math.random()}`,
-                name: skill,
-                level: 1 as 1,
-                category: 'technical' as const,
-                lastUsed: new Date()
-              } as Skill;
-            }
-            return skill;
-          }),
-          workload
-        } as SimpleUser;
-      });
-      
-      // Tri côté client pour éviter le besoin d'index composite
+      // Appel API REST avec filtre isActive
+      const response = await usersAPI.getUsers({ isActive: true });
+
+      // Mapper les utilisateurs de l'API vers le format SimpleUser
+      const users = response.data.map((user: User) => ({
+        id: user.id,
+        displayName: user.displayName || `${user.firstName} ${user.lastName}`,
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
+        email: user.email || '',
+        role: user.role || 'contributor',
+        department: user.department || 'Non spécifié',
+        isActive: user.isActive !== false,
+        skills: user.skills || [],
+        workload: 0, // Workload calculé par le frontend si nécessaire
+      } as SimpleUser));
+
+      // Tri par displayName
       return users.sort((a, b) => a.displayName.localeCompare(b.displayName));
     } catch (error) {
       console.error('Erreur lors de la récupération des utilisateurs:', error);
@@ -120,22 +85,23 @@ class SimpleUserService {
     return 'Surchargé';
   }
 
+  /**
+   * Met à jour un utilisateur
+   * Migration complète vers API REST backend (17 oct 2025)
+   */
   async updateUser(userId: string, updates: Partial<SimpleUser>): Promise<void> {
     try {
-      const updateData = { ...updates };
-      
-      // Convertir les objets Skill en format compatible Firebase si nécessaire
-      if (updates.skills) {
-        updateData.skills = updates.skills.map(skill => ({
-          id: skill.id,
-          name: skill.name,
-          level: skill.level,
-          category: skill.category,
-          lastUsed: skill.lastUsed
-        }));
-      }
-      
-      await updateDoc(doc(db, 'users', userId), updateData);
+      // Mapper SimpleUser updates vers UpdateUserDto
+      const updateData: any = {};
+
+      if (updates.email !== undefined) updateData.email = updates.email;
+      if (updates.firstName !== undefined) updateData.firstName = updates.firstName;
+      if (updates.lastName !== undefined) updateData.lastName = updates.lastName;
+      if (updates.role !== undefined) updateData.role = updates.role;
+      if (updates.isActive !== undefined) updateData.isActive = updates.isActive;
+      // Note: skills et department peuvent nécessiter des endpoints dédiés selon le backend
+
+      await usersAPI.updateUser(userId, updateData);
       console.log('✅ Utilisateur mis à jour:', userId);
     } catch (error) {
       console.error('Erreur lors de la mise à jour de l\'utilisateur:', error);

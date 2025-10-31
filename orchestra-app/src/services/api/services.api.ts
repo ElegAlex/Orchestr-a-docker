@@ -66,47 +66,41 @@ export const servicesApi = {
    */
   getAll: async (isActive?: boolean): Promise<OrganizationService[]> => {
     const params = isActive !== undefined ? { isActive } : {};
-    const { data } = await api.get<OrganizationService[]>('/services', { params });
-    return data;
+    return await api.get<OrganizationService[]>('/services', { params });
   },
 
   /**
    * Récupère un service par son ID
    */
   getById: async (id: string): Promise<OrganizationService> => {
-    const { data } = await api.get<OrganizationService>(`/services/${id}`);
-    return data;
+    return await api.get<OrganizationService>(`/services/${id}`);
   },
 
   /**
    * Crée un nouveau service
    */
   create: async (dto: CreateServiceDto): Promise<OrganizationService> => {
-    const { data } = await api.post<OrganizationService>('/services', dto);
-    return data;
+    return await api.post<OrganizationService>('/services', dto);
   },
 
   /**
    * Met à jour un service
    */
   update: async (id: string, dto: UpdateServiceDto): Promise<OrganizationService> => {
-    const { data } = await api.patch<OrganizationService>(`/services/${id}`, dto);
-    return data;
+    return await api.patch<OrganizationService>(`/services/${id}`, dto);
   },
 
   /**
    * Supprime un service (soft delete)
    */
   delete: async (id: string): Promise<OrganizationService> => {
-    const { data } = await api.delete<OrganizationService>(`/services/${id}`);
-    return data;
+    return await api.delete<OrganizationService>(`/services/${id}`);
   },
 
   /**
    * Récupère les statistiques des services
    */
   getStats: async (): Promise<ServiceStats> => {
-    const { data } = await api.get<ServiceStats>('/services/stats');
-    return data;
+    return await api.get<ServiceStats>('/services/stats');
   },
 };

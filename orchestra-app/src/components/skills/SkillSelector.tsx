@@ -78,7 +78,10 @@ export const SkillSelector: React.FC<SkillSelectorProps> = ({
         };
         
         allSkills.forEach(skill => {
-          skillsByCategory[skill.category].push(skill.name);
+          const category = skill.category.toLowerCase() as SkillCategory;
+          if (skillsByCategory[category]) {
+            skillsByCategory[category].push(skill.name);
+          }
         });
         
         setAvailableSkills(skillsByCategory);
@@ -128,7 +131,10 @@ export const SkillSelector: React.FC<SkillSelectorProps> = ({
       };
       
       updatedSkills.forEach(skill => {
-        skillsByCategory[skill.category].push(skill.name);
+        const category = skill.category.toLowerCase() as SkillCategory;
+        if (skillsByCategory[category]) {
+          skillsByCategory[category].push(skill.name);
+        }
       });
       
       setAvailableSkills(skillsByCategory);

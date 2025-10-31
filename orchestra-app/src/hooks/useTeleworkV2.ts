@@ -1,7 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSelector } from 'react-redux';
 import { startOfWeek, endOfWeek, addDays, isSameDay } from 'date-fns';
-import { Timestamp } from 'firebase/firestore';
 import { RootState } from '../store';
 import {
   UserTeleworkProfile,
@@ -71,6 +70,9 @@ export const useTeleworkV2 = ({
   const [error, setError] = useState<string | null>(null);
   const [modalState, setModalState] = useState<TeleworkModalState>({ isOpen: false, mode: 'profile' });
 
+  // useRef pour tracker les échecs SANS re-render (évite boucle infinie)
+  const failedUserIdsRef = useRef<Set<string>>(new Set());
+
   const stableUserIds = useMemo(() => userIds, [userIds.join(',')]);
   const { start: periodStart, end: periodEnd } = dateRange;
 
@@ -83,6 +85,11 @@ export const useTeleworkV2 = ({
 
       await Promise.all(
         stableUserIds.map(async (userId) => {
+          // Skip users that already failed to avoid infinite loop
+          if (failedUserIdsRef.current.has(userId)) {
+            return;
+          }
+
           try {
             let profile = await teleworkServiceV2.getUserProfile(userId);
 
@@ -91,9 +98,16 @@ export const useTeleworkV2 = ({
               profile = await teleworkServiceV2.getOrCreateUserProfile(userId, userDisplayName, currentUser.id);
             }
 
-            profilesMap.set(userId, profile);
+            if (profile) {
+              profilesMap.set(userId, profile);
+            }
           } catch (err: any) {
-            console.error(`Erreur chargement profil ${userId}:`, err);
+            // Mark as failed to prevent infinite retry loop
+            failedUserIdsRef.current.add(userId);
+            // Silent error - don't spam console
+            if (process.env.NODE_ENV === 'development') {
+              console.warn(`Profil télétravail non disponible pour ${userId}`);
+            }
           }
         })
       );
@@ -116,7 +130,7 @@ export const useTeleworkV2 = ({
         stableUserIds.map(async (userId) => {
           try {
             // Charger les overrides pour toute la période visible
-            const overrides = await teleworkServiceV2.getUserOverrides(userId, periodStart, periodEnd);
+            const overrides = await teleworkServiceV2.getUserOverrides(userId, periodStart, periodEnd) || [];
             const profile = profiles.get(userId);
             const days = [];
 
@@ -128,7 +142,7 @@ export const useTeleworkV2 = ({
               const isWeekendDay = dayOfWeek === 0 || dayOfWeek === 6;
 
               // Chercher un override pour ce jour
-              const override = overrides.find(o => isSameDay(o.date.toDate(), currentDate));
+              const override = overrides?.find(o => o.date && isSameDay(new Date(o.date), currentDate));
 
               let resolvedMode: 'office' | 'remote' = 'office';
               let source = 'default';
@@ -237,12 +251,11 @@ export const useTeleworkV2 = ({
 
       const overrideId = await teleworkServiceV2.requestOverride({
         userId,
-        date: Timestamp.fromDate(date),
+        date: date, // Passer directement le Date object (plus de Timestamp Firebase)
         mode,
         reason,
-        source: 'user_request',
-        priority: 1,
         createdBy: currentUser.id
+        // Note: source et priority sont gérés automatiquement par le backend
       });
 
       await refreshData();
@@ -390,7 +403,8 @@ export const useTeleworkV2 = ({
     if (stableUserIds.length > 0 && currentUser) {
       refreshData();
     }
-  }, [stableUserIds, currentUser, periodStart, periodEnd, refreshData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stableUserIds, currentUser, periodStart, periodEnd]);
 
   useEffect(() => {
     if (!autoRefresh) return;

@@ -15,6 +15,7 @@ import { SimpleTasksService } from './simple-tasks.service';
 import { CreateSimpleTaskDto, CreateMultipleSimpleTasksDto } from './dto/create-simple-task.dto';
 import { UpdateSimpleTaskDto } from './dto/update-simple-task.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @Controller('simple-tasks')
 @UseGuards(JwtAuthGuard)
@@ -68,7 +69,7 @@ export class SimpleTasksController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@Param('id') id: string) {
-    return this.simpleTasksService.remove(id);
+  remove(@Param('id') id: string, @CurrentUser('id') currentUserId: string) {
+    return this.simpleTasksService.remove(id, currentUserId);
   }
 }

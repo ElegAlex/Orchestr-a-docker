@@ -379,6 +379,8 @@ export const MyLeaves: React.FC = () => {
                       {typeInfo.icon}
                     </Box>
                     <ListItemText
+                      primaryTypographyProps={{ component: 'div' }}
+                      secondaryTypographyProps={{ component: 'div' }}
                       primary={
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                           <Typography variant="body1" fontWeight="medium">
@@ -394,7 +396,7 @@ export const MyLeaves: React.FC = () => {
                       secondary={
                         <Box>
                           <Typography variant="body2" color="text.primary">
-                            Du {format(leave.startDate, 'dd/MM/yyyy', { locale: fr })} 
+                            Du {format(leave.startDate, 'dd/MM/yyyy', { locale: fr })}
                             au {format(leave.endDate, 'dd/MM/yyyy', { locale: fr })}
                             {' '}({leave.totalDays} jour{leave.totalDays > 1 ? 's' : ''})
                           </Typography>

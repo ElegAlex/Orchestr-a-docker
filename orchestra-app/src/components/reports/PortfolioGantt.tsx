@@ -381,10 +381,11 @@ const PortfolioGantt: React.FC<PortfolioGanttProps> = ({ projects, milestones })
           const projectMilestones = milestones.filter(m => m.projectId === project.id);
           const projectBar = getBarPosition(project.startDate, project.dueDate || new Date());
 
-          console.log(`Project ${project.name} (${project.id}) has ${projectMilestones.length} milestones`);
-          if (projectMilestones.length > 0) {
-            console.log('Milestones for project:', projectMilestones);
-          }
+          // Debug logs commentés pour éviter le spam console
+          // console.log(`Project ${project.name} (${project.id}) has ${projectMilestones.length} milestones`);
+          // if (projectMilestones.length > 0) {
+          //   console.log('Milestones for project:', projectMilestones);
+          // }
 
           return (
             <Box key={project.id}>

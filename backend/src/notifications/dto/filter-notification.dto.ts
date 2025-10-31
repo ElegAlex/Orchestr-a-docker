@@ -17,6 +17,15 @@ export class FilterNotificationDto {
   userId?: string;
 
   @ApiProperty({
+    description: 'Filtrer par département (via l\'utilisateur)',
+    example: 'general-dept-default-001',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  departmentId?: string;
+
+  @ApiProperty({
     description: 'Type de notification',
     enum: NotificationType,
     required: false,

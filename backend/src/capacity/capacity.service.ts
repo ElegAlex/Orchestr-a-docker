@@ -56,6 +56,9 @@ export class CapacityService {
    * Récupère le contrat actif d'un utilisateur
    */
   async getUserContract(userId: string) {
+    console.log('🔍 [getUserContract] Recherche contrat pour userId:', userId);
+    console.log('🔍 [getUserContract] Date actuelle:', new Date());
+
     const contracts = await this.prisma.workContract.findMany({
       where: {
         userId,
@@ -69,7 +72,13 @@ export class CapacityService {
       take: 1
     });
 
+    console.log('🔍 [getUserContract] Contrats trouvés:', contracts.length);
+    if (contracts.length > 0) {
+      console.log('✅ [getUserContract] Contrat:', contracts[0].id, 'startDate:', contracts[0].startDate);
+    }
+
     if (contracts.length === 0) {
+      console.log('⚪ [getUserContract] Aucun contrat, retour contrat virtuel');
       // Retourner un contrat virtuel par défaut
       return this.getVirtualDefaultContract(userId);
     }
@@ -91,33 +100,44 @@ export class CapacityService {
    * Crée un contrat de travail
    */
   async createContract(userId: string, dto: CreateContractDto) {
-    return this.prisma.workContract.create({
-      data: {
-        userId,
-        type: dto.type,
-        workingTimePercentage: dto.workingTimePercentage,
-        weeklyHours: dto.weeklyHours,
-        workingDays: dto.workingDays,
-        workingSchedule: dto.workingSchedule || null,
-        startDate: new Date(dto.startDate),
-        endDate: dto.endDate ? new Date(dto.endDate) : null,
-        paidLeaveDays: dto.paidLeaveDays || 25,
-        rttDays: dto.rttDays || 0,
-        isRemoteAllowed: dto.isRemoteAllowed || false,
-        maxRemoteDaysPerWeek: dto.maxRemoteDaysPerWeek || null,
-        hourlyRate: dto.hourlyRate || null,
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            firstName: true,
-            lastName: true
+    console.log('🔍 [Service] createContract appelé avec userId:', userId);
+    console.log('🔍 [Service] dto:', JSON.stringify(dto, null, 2));
+
+    try {
+      const result = await this.prisma.workContract.create({
+        data: {
+          userId,
+          type: dto.type,
+          workingTimePercentage: dto.workingTimePercentage,
+          weeklyHours: dto.weeklyHours,
+          workingDays: dto.workingDays,
+          workingSchedule: dto.workingSchedule || null,
+          startDate: new Date(dto.startDate),
+          endDate: dto.endDate ? new Date(dto.endDate) : null,
+          paidLeaveDays: dto.paidLeaveDays || 25,
+          rttDays: dto.rttDays || 0,
+          isRemoteAllowed: dto.isRemoteAllowed || false,
+          maxRemoteDaysPerWeek: dto.maxRemoteDaysPerWeek || null,
+          hourlyRate: dto.hourlyRate || null,
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true
+            }
           }
         }
-      }
-    });
+      });
+
+      console.log('✅ [Service] Contrat créé avec succès:', result.id);
+      return result;
+    } catch (error) {
+      console.error('❌ [Service] Erreur lors de la création du contrat:', error);
+      throw error;
+    }
   }
 
   /**

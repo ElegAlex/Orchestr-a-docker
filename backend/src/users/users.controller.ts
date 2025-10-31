@@ -23,10 +23,12 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { FilterUserDto } from './dto/filter-user.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { AdminResetPasswordDto } from './dto/admin-reset-password.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { GetDepartmentFilter } from '../auth/decorators/department-filter.decorator';
 
 /**
  * Contrôleur de gestion des utilisateurs
@@ -80,6 +82,8 @@ export class UsersController {
 
   /**
    * Récupérer tous les utilisateurs avec filtres et pagination
+   * 🔒 Isolation par département : Les utilisateurs non-ADMIN/RESPONSABLE
+   * ne voient que les users de leur département
    */
   @Get()
   @ApiOperation({ summary: 'Liste des utilisateurs avec filtres et pagination' })
@@ -112,7 +116,14 @@ export class UsersController {
       },
     },
   })
-  findAll(@Query() filterDto: FilterUserDto) {
+  findAll(
+    @Query() filterDto: FilterUserDto,
+    @GetDepartmentFilter() departmentFilter: string | null,
+  ) {
+    // 🔒 Si l'utilisateur n'est pas ADMIN/RESPONSABLE, on force le filtre département
+    if (departmentFilter && !filterDto.departmentId) {
+      filterDto.departmentId = departmentFilter;
+    }
     return this.usersService.findAll(filterDto);
   }
 
@@ -224,6 +235,30 @@ export class UsersController {
   }
 
   /**
+   * Supprimer définitivement un utilisateur (hard delete)
+   * Réservé aux ADMIN et RESPONSABLE - À utiliser avec précaution !
+   */
+  @Delete(':id/permanent')
+  @Roles('ADMIN', 'RESPONSABLE')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Supprimer définitivement un utilisateur (hard delete)' })
+  @ApiParam({ name: 'id', description: 'ID de l\'utilisateur' })
+  @ApiResponse({
+    status: 200,
+    description: 'Utilisateur supprimé définitivement',
+    schema: {
+      example: {
+        message: 'Utilisateur supprimé définitivement',
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Utilisateur non trouvé' })
+  @ApiResponse({ status: 403, description: 'Accès refusé' })
+  removeHard(@Param('id') id: string) {
+    return this.usersService.removeHard(id);
+  }
+
+  /**
    * Changer son mot de passe
    * Accessible à tous les utilisateurs authentifiés
    */
@@ -245,5 +280,35 @@ export class UsersController {
     @Body() changePasswordDto: ChangePasswordDto,
   ) {
     return this.usersService.changePassword(userId, changePasswordDto);
+  }
+
+  /**
+   * Réinitialiser le mot de passe d'un utilisateur (Admin only)
+   * Permet à un administrateur de changer le password d'un utilisateur sans connaître l'ancien
+   */
+  @Post('admin-reset-password')
+  @HttpCode(HttpStatus.OK)
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Réinitialiser le mot de passe d\'un utilisateur (Admin)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Mot de passe réinitialisé avec succès',
+    schema: {
+      example: {
+        message: 'Mot de passe réinitialisé avec succès',
+        userId: '123e4567-e89b-12d3-a456-426614174000',
+        email: 'user@example.com'
+      },
+    },
+  })
+  @ApiResponse({ status: 403, description: 'Accès refusé (Admin seulement)' })
+  @ApiResponse({ status: 404, description: 'Utilisateur non trouvé' })
+  adminResetPassword(
+    @Body() adminResetPasswordDto: AdminResetPasswordDto,
+  ) {
+    return this.usersService.adminResetPassword(
+      adminResetPasswordDto.userId,
+      adminResetPasswordDto.newPassword
+    );
   }
 }

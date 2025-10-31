@@ -31,8 +31,8 @@ export const personalTodosAPI = {
    * Récupère toutes les todos de l'utilisateur connecté
    */
   async getAll(params?: GetPersonalTodosParams): Promise<PersonalTodo[]> {
-    const response = await api.get('/personal-todos', { params });
-    return response.data || [];
+    // api.get() retourne déjà response.data, pas besoin de .data ici
+    return await api.get('/personal-todos', { params });
   },
 
   /**

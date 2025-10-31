@@ -30,10 +30,12 @@ import {
   FolderOpen as ProjectIcon,
   Assignment as TaskIcon,
   People as PeopleIcon,
+  EventAvailable as EventAvailableIcon,
 } from '@mui/icons-material';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store';
 import { useSimulatedUser } from '../hooks/useSimulatedPermissions';
+import { useNavigate } from 'react-router-dom';
 import MyPlanning from '../components/dashboard/MyPlanning';
 import MyProjectsWidget from '../components/dashboard/MyProjectsWidget';
 import MyTasksWidget from '../components/dashboard/MyTasksWidget';
@@ -47,6 +49,7 @@ import { CreateSimpleTaskInput } from '../types/simpleTask';
 import { PresenceModal } from '../components/presence/PresenceModal';
 
 export const DashboardHub: React.FC = () => {
+  const navigate = useNavigate();
   const currentUser = useSelector((state: RootState) => state.auth.user);
   const { user, isSimulating } = useSimulatedUser();
   const [loading, setLoading] = useState(true);
@@ -178,6 +181,17 @@ export const DashboardHub: React.FC = () => {
               size="small"
             />
           )}
+          {/* UI-01 FIX: Bouton "Déclarer une absence" pour accès rapide */}
+          <Button
+            variant="contained"
+            startIcon={<EventAvailableIcon />}
+            onClick={() => navigate('/profile')}
+            size="small"
+            color="success"
+            sx={{ whiteSpace: 'nowrap' }}
+          >
+            Déclarer une absence
+          </Button>
           <Button
             variant="outlined"
             startIcon={<PeopleIcon />}

@@ -26,6 +26,8 @@ export interface SystemSettings {
   // Maintenance Mode
   maintenanceMode: boolean;
   maintenanceMessage?: string;
+  // Calendar Configuration
+  visibleWeekDays: number[];
   // Audit
   lastModifiedBy?: string;
   createdAt: string;
@@ -57,6 +59,8 @@ export interface UpdateSettingsRequest {
   // Maintenance Mode
   maintenanceMode?: boolean;
   maintenanceMessage?: string;
+  // Calendar Configuration
+  visibleWeekDays?: number[];
 }
 
 export interface MaintenanceStatus {

@@ -1,0 +1,220 @@
+version: '3.8'
+
+# ==========================================
+# Orchestr'A - Infrastructure Production
+# ==========================================
+#
+# Services:
+# - PostgreSQL 16 (Base de données)
+# - Redis 7 (Cache et sessions)
+# - MinIO (Stockage objets S3-compatible)
+# - Backend NestJS (API REST)
+# - Frontend React (Application web)
+#
+# Usage:
+#   docker-compose -f docker-compose.production.yml up -d         # Démarrer tous les services
+#   docker-compose -f docker-compose.production.yml down          # Arrêter tous les services
+#   docker-compose -f docker-compose.production.yml logs -f       # Voir les logs en temps réel
+#   docker-compose -f docker-compose.production.yml ps            # État des services
+
+services:
+  # ==========================================
+  # PostgreSQL - Base de données
+  # ==========================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: orchestr-a-postgres-prod
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-orchestra_prod}
+      POSTGRES_USER: ${POSTGRES_USER:-prod_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "127.0.0.1:5432:5432"  # Accessible uniquement en localhost
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - orchestr-a-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prod_user} -d ${POSTGRES_DB:-orchestra_prod}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    mem_limit: 2g
+    cpus: 2
+    labels:
+      com.orchestr-a.service: "database"
+      com.orchestr-a.env: "production"
+
+  # ==========================================
+  # Redis - Cache et sessions
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: orchestr-a-redis-prod
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - "127.0.0.1:6379:6379"  # Accessible uniquement en localhost
+    volumes:
+      - redis-data:/data
+    networks:
+      - orchestr-a-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    mem_limit: 512m
+    labels:
+      com.orchestr-a.service: "cache"
+      com.orchestr-a.env: "production"
+
+  # ==========================================
+  # MinIO - Stockage objets S3
+  # ==========================================
+  minio:
+    image: minio/minio:latest
+    container_name: orchestr-a-minio-prod
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "127.0.0.1:9000:9000"  # API S3 - Accessible uniquement en localhost
+      - "127.0.0.1:9001:9001"  # Console Web - Accessible uniquement en localhost
+    volumes:
+      - minio-data:/data
+    networks:
+      - orchestr-a-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    mem_limit: 1g
+    labels:
+      com.orchestr-a.service: "storage"
+      com.orchestr-a.env: "production"
+
+  # ==========================================
+  # Backend NestJS - API REST
+  # ==========================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+      args:
+        NODE_ENV: production
+    image: orchestr-a-backend:latest
+    container_name: orchestr-a-backend-prod
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-prod_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-orchestra_prod}?schema=public
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRY: ${JWT_ACCESS_EXPIRY:-15m}
+      JWT_REFRESH_EXPIRY: ${JWT_REFRESH_EXPIRY:-30d}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_USE_SSL: "false"
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-orchestra-files}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://orchestr-a.domain.com}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - "127.0.0.1:4000:4000"  # API accessible uniquement en localhost (Nginx proxy)
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - orchestr-a-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    mem_limit: 2g
+    cpus: 2
+    labels:
+      com.orchestr-a.service: "backend"
+      com.orchestr-a.env: "production"
+
+  # ==========================================
+  # Frontend React - Application web
+  # ==========================================
+  frontend:
+    build:
+      context: ../orchestra-app
+      dockerfile: Dockerfile.production
+      args:
+        REACT_APP_API_URL: ${REACT_APP_API_URL:-https://orchestr-a.domain.com/api}
+        REACT_APP_ENV: production
+    image: orchestr-a-frontend:latest
+    container_name: orchestr-a-frontend-prod
+    restart: always
+    ports:
+      - "127.0.0.1:3001:80"  # Frontend accessible uniquement en localhost (Nginx proxy)
+    networks:
+      - orchestr-a-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    mem_limit: 512m
+    labels:
+      com.orchestr-a.service: "frontend"
+      com.orchestr-a.env: "production"
+
+# ==========================================
+# Volumes persistants
+# ==========================================
+volumes:
+  postgres-data:
+    name: orchestr-a-postgres-data-prod
+    driver: local
+    labels:
+      com.orchestr-a.volume: "database"
+      com.orchestr-a.env: "production"
+
+  redis-data:
+    name: orchestr-a-redis-data-prod
+    driver: local
+    labels:
+      com.orchestr-a.volume: "cache"
+      com.orchestr-a.env: "production"
+
+  minio-data:
+    name: orchestr-a-minio-data-prod
+    driver: local
+    labels:
+      com.orchestr-a.volume: "storage"
+      com.orchestr-a.env: "production"
+
+# ==========================================
+# Réseau dédié
+# ==========================================
+networks:
+  orchestr-a-network:
+    name: orchestr-a-prod
+    driver: bridge
+    labels:
+      com.orchestr-a.network: "production"

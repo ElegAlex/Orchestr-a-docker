@@ -201,24 +201,21 @@ export const capacityApi = {
    * Récupère le contrat actif d'un utilisateur
    */
   getUserContract: async (userId: string): Promise<WorkContract> => {
-    const response = await apiClient.get(`/capacity/contracts/${userId}`);
-    return response.data;
+    return await apiClient.get<WorkContract>(`/capacity/contracts/${userId}`);
   },
 
   /**
    * Récupère tous les contrats d'un utilisateur
    */
   getUserContracts: async (userId: string): Promise<WorkContract[]> => {
-    const response = await apiClient.get(`/capacity/contracts/${userId}/all`);
-    return response.data;
+    return await apiClient.get<WorkContract[]>(`/capacity/contracts/${userId}/all`);
   },
 
   /**
    * Récupère mon contrat actif
    */
   getMyContract: async (): Promise<WorkContract> => {
-    const response = await apiClient.get('/capacity/contracts/me/current');
-    return response.data;
+    return await apiClient.get<WorkContract>('/capacity/contracts/me/current');
   },
 
   /**
@@ -228,11 +225,10 @@ export const capacityApi = {
     userId: string,
     dto: CreateContractDto
   ): Promise<WorkContract> => {
-    const response = await apiClient.post(
+    return await apiClient.post<WorkContract>(
       `/capacity/contracts/${userId}`,
       dto
     );
-    return response.data;
   },
 
   /**
@@ -242,18 +238,17 @@ export const capacityApi = {
     contractId: string,
     dto: UpdateContractDto
   ): Promise<WorkContract> => {
-    const response = await apiClient.put(
+    return await apiClient.put<WorkContract>(
       `/capacity/contracts/${contractId}`,
       dto
     );
-    return response.data;
   },
 
   /**
    * Supprime un contrat
    */
   deleteContract: async (contractId: string): Promise<void> => {
-    await apiClient.delete(`/capacity/contracts/${contractId}`);
+    return await apiClient.delete<void>(`/capacity/contracts/${contractId}`);
   },
 
   // ==========================================
@@ -272,10 +267,9 @@ export const capacityApi = {
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
 
-    const response = await apiClient.get(
+    return await apiClient.get<ResourceAllocation[]>(
       `/capacity/allocations/user/${userId}?${params.toString()}`
     );
-    return response.data;
   },
 
   /**
@@ -290,10 +284,9 @@ export const capacityApi = {
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
 
-    const response = await apiClient.get(
+    return await apiClient.get<ResourceAllocation[]>(
       `/capacity/allocations/project/${projectId}?${params.toString()}`
     );
-    return response.data;
   },
 
   /**
@@ -307,10 +300,9 @@ export const capacityApi = {
     if (startDate) params.append('startDate', startDate);
     if (endDate) params.append('endDate', endDate);
 
-    const response = await apiClient.get(
+    return await apiClient.get<ResourceAllocation[]>(
       `/capacity/allocations/me?${params.toString()}`
     );
-    return response.data;
   },
 
   /**
@@ -319,8 +311,7 @@ export const capacityApi = {
   createAllocation: async (
     dto: CreateAllocationDto
   ): Promise<ResourceAllocation> => {
-    const response = await apiClient.post('/capacity/allocations', dto);
-    return response.data;
+    return await apiClient.post<ResourceAllocation>('/capacity/allocations', dto);
   },
 
   /**
@@ -330,18 +321,17 @@ export const capacityApi = {
     allocationId: string,
     dto: UpdateAllocationDto
   ): Promise<ResourceAllocation> => {
-    const response = await apiClient.put(
+    return await apiClient.put<ResourceAllocation>(
       `/capacity/allocations/${allocationId}`,
       dto
     );
-    return response.data;
   },
 
   /**
    * Supprime une allocation
    */
   deleteAllocation: async (allocationId: string): Promise<void> => {
-    await apiClient.delete(`/capacity/allocations/${allocationId}`);
+    return await apiClient.delete<void>(`/capacity/allocations/${allocationId}`);
   },
 
   // ==========================================
@@ -362,10 +352,9 @@ export const capacityApi = {
     params.append('endDate', endDate);
     if (label) params.append('label', label);
 
-    const response = await apiClient.get(
+    return await apiClient.get<UserCapacity>(
       `/capacity/calculate/${userId}?${params.toString()}`
     );
-    return response.data;
   },
 
   /**
@@ -381,10 +370,9 @@ export const capacityApi = {
     params.append('endDate', endDate);
     if (label) params.append('label', label);
 
-    const response = await apiClient.get(
+    return await apiClient.get<UserCapacity>(
       `/capacity/calculate/me/current?${params.toString()}`
     );
-    return response.data;
   },
 
   /**
@@ -399,10 +387,9 @@ export const capacityApi = {
     params.append('startDate', startDate);
     params.append('endDate', endDate);
 
-    const response = await apiClient.get(
+    return await apiClient.get<UserCapacityCache | null>(
       `/capacity/cached/${userId}?${params.toString()}`
     );
-    return response.data;
   },
 
   /**
@@ -416,9 +403,8 @@ export const capacityApi = {
     params.append('type', type);
     params.append('year', year.toString());
 
-    const response = await apiClient.get(
+    return await apiClient.get<DatePeriod[]>(
       `/capacity/periods?${params.toString()}`
     );
-    return response.data;
   },
 };

@@ -167,8 +167,7 @@ export const skillsAPI = {
    * Créer une nouvelle compétence
    */
   async create(data: CreateSkillRequest): Promise<Skill> {
-    const response = await api.post<Skill>('/skills', data);
-    return response.data;
+    return await api.post<Skill>('/skills', data);
   },
 
   /**
@@ -179,24 +178,21 @@ export const skillsAPI = {
     if (filters?.category) params.append('category', filters.category);
     if (filters?.isActive !== undefined) params.append('isActive', String(filters.isActive));
 
-    const response = await api.get<Skill[]>(`/skills?${params.toString()}`);
-    return response.data;
+    return await api.get<Skill[]>(`/skills?${params.toString()}`);
   },
 
   /**
    * Récupérer une compétence par ID
    */
   async getById(id: string): Promise<Skill> {
-    const response = await api.get<Skill>(`/skills/${id}`);
-    return response.data;
+    return await api.get<Skill>(`/skills/${id}`);
   },
 
   /**
    * Mettre à jour une compétence
    */
   async update(id: string, data: UpdateSkillRequest): Promise<Skill> {
-    const response = await api.patch<Skill>(`/skills/${id}`, data);
-    return response.data;
+    return await api.patch<Skill>(`/skills/${id}`, data);
   },
 
   /**
@@ -210,8 +206,7 @@ export const skillsAPI = {
    * Récupérer les catégories avec leurs compétences
    */
   async getCategories(): Promise<CategoryWithSkills[]> {
-    const response = await api.get<CategoryWithSkills[]>('/skills/categories');
-    return response.data;
+    return await api.get<CategoryWithSkills[]>('/skills/categories');
   },
 
   // ==================== COMPÉTENCES UTILISATEURS ====================
@@ -220,32 +215,28 @@ export const skillsAPI = {
    * Ajouter une compétence à un utilisateur
    */
   async addUserSkill(userId: string, data: CreateUserSkillRequest): Promise<UserSkill> {
-    const response = await api.post<UserSkill>(`/skills/users/${userId}`, data);
-    return response.data;
+    return await api.post<UserSkill>(`/skills/users/${userId}`, data);
   },
 
   /**
    * Récupérer les compétences d'un utilisateur
    */
   async getUserSkills(userId: string): Promise<UserSkill[]> {
-    const response = await api.get<UserSkill[]>(`/skills/users/${userId}`);
-    return response.data;
+    return await api.get<UserSkill[]>(`/skills/users/${userId}`);
   },
 
   /**
    * Récupérer mes compétences (utilisateur connecté)
    */
   async getMySkills(): Promise<UserSkill[]> {
-    const response = await api.get<UserSkill[]>('/skills/users/me/skills');
-    return response.data;
+    return await api.get<UserSkill[]>('/skills/users/me/skills');
   },
 
   /**
    * Mettre à jour une compétence d'un utilisateur
    */
   async updateUserSkill(userId: string, skillId: string, data: UpdateUserSkillRequest): Promise<UserSkill> {
-    const response = await api.patch<UserSkill>(`/skills/users/${userId}/${skillId}`, data);
-    return response.data;
+    return await api.patch<UserSkill>(`/skills/users/${userId}/${skillId}`, data);
   },
 
   /**
@@ -273,8 +264,7 @@ export const skillsAPI = {
     const params = new URLSearchParams({ skillId });
     if (minimumLevel) params.append('minimumLevel', minimumLevel);
 
-    const response = await api.get(`/skills/search/users?${params.toString()}`);
-    return response.data;
+    return await api.get(`/skills/search/users?${params.toString()}`);
   },
 
   // ==================== COMPÉTENCES TÂCHES ====================
@@ -283,24 +273,21 @@ export const skillsAPI = {
    * Ajouter une compétence requise à une tâche
    */
   async addTaskSkill(taskId: string, data: CreateTaskSkillRequest): Promise<TaskSkill> {
-    const response = await api.post<TaskSkill>(`/skills/tasks/${taskId}`, data);
-    return response.data;
+    return await api.post<TaskSkill>(`/skills/tasks/${taskId}`, data);
   },
 
   /**
    * Récupérer les compétences requises pour une tâche
    */
   async getTaskSkills(taskId: string): Promise<TaskSkill[]> {
-    const response = await api.get<TaskSkill[]>(`/skills/tasks/${taskId}`);
-    return response.data;
+    return await api.get<TaskSkill[]>(`/skills/tasks/${taskId}`);
   },
 
   /**
    * Mettre à jour une exigence de compétence pour une tâche
    */
   async updateTaskSkill(taskId: string, skillId: string, data: UpdateTaskSkillRequest): Promise<TaskSkill> {
-    const response = await api.patch<TaskSkill>(`/skills/tasks/${taskId}/${skillId}`, data);
-    return response.data;
+    return await api.patch<TaskSkill>(`/skills/tasks/${taskId}/${skillId}`, data);
   },
 
   /**
@@ -316,32 +303,28 @@ export const skillsAPI = {
    * Récupérer les métriques globales sur les compétences
    */
   async getMetrics(): Promise<SkillMetrics> {
-    const response = await api.get<SkillMetrics>('/skills/metrics/all');
-    return response.data;
+    return await api.get<SkillMetrics>('/skills/metrics/all');
   },
 
   /**
    * Récupérer le top des compétences en demande
    */
   async getTopDemandSkills(limit: number = 10): Promise<TopDemandSkill[]> {
-    const response = await api.get<TopDemandSkill[]>(`/skills/metrics/demand?limit=${limit}`);
-    return response.data;
+    return await api.get<TopDemandSkill[]>(`/skills/metrics/demand?limit=${limit}`);
   },
 
   /**
    * Récupérer les compétences en pénurie
    */
   async getShortageSkills(): Promise<ShortageSkill[]> {
-    const response = await api.get<ShortageSkill[]>('/skills/metrics/shortage');
-    return response.data;
+    return await api.get<ShortageSkill[]>('/skills/metrics/shortage');
   },
 
   /**
    * Recommander des personnes pour une tâche
    */
   async recommendPeopleForTask(taskId: string): Promise<PersonRecommendation[]> {
-    const response = await api.get<PersonRecommendation[]>(`/skills/recommend/task/${taskId}`);
-    return response.data;
+    return await api.get<PersonRecommendation[]>(`/skills/recommend/task/${taskId}`);
   },
 
   // ==================== INITIALISATION ====================
@@ -350,7 +333,6 @@ export const skillsAPI = {
    * Initialiser les compétences par défaut (70+ compétences)
    */
   async initializeDefaultSkills(): Promise<InitializeSkillsResponse> {
-    const response = await api.post<InitializeSkillsResponse>('/skills/initialize');
-    return response.data;
+    return await api.post<InitializeSkillsResponse>('/skills/initialize');
   },
 };

@@ -562,14 +562,21 @@ export class SkillsService {
     const skipped: string[] = [];
 
     for (const skillData of defaultSkills) {
-      const existing = await this.prisma.skill.findUnique({
-        where: { name: skillData.name },
-      });
+      try {
+        const existing = await this.prisma.skill.findUnique({
+          where: { name: skillData.name },
+        });
 
-      if (!existing) {
-        const skill = await this.prisma.skill.create({ data: skillData });
-        created.push(skill);
-      } else {
+        if (!existing) {
+          const skill = await this.prisma.skill.create({ data: skillData });
+          created.push(skill);
+        } else {
+          skipped.push(skillData.name);
+        }
+      } catch (error) {
+        // Gérer l'erreur de contrainte unique (race condition)
+        // Si deux appels simultanés tentent de créer la même skill
+        console.warn(`Skill "${skillData.name}" déjà existante (contrainte unique)`);
         skipped.push(skillData.name);
       }
     }

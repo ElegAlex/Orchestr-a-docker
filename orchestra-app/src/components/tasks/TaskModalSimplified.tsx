@@ -227,12 +227,21 @@ export const TaskModalSimplified: React.FC<TaskModalProps> = ({
 
     try {
       setLoading(true);
-      
+
+      // Convertir la priorité frontend (P0/P1/P2/P3) vers backend (CRITICAL/HIGH/MEDIUM/LOW)
+      const priorityMap: Record<string, string> = {
+        'P0': 'CRITICAL',
+        'P1': 'HIGH',
+        'P2': 'MEDIUM',
+        'P3': 'LOW'
+      };
+
       const taskData: any = {
         id: task?.id || '',
         code: task?.code || '',
         taskCategory: task?.taskCategory || 'PROJECT_TASK',
         ...formData,
+        priority: priorityMap[formData.priority] || 'MEDIUM',
         createdBy: task?.createdBy || user?.id || '',
         createdAt: task?.createdAt || new Date(),
         updatedAt: new Date(),
@@ -564,9 +573,9 @@ export const TaskModalSimplified: React.FC<TaskModalProps> = ({
                 <Autocomplete
                   multiple
                   options={users}
-                  getOptionLabel={(option) => option.displayName}
+                  getOptionLabel={(option) => option.displayName || `${option.firstName} ${option.lastName}`}
                   value={users.filter(u => formData.responsible.includes(u.id))}
-                  onChange={(_, values) => 
+                  onChange={(_, values) =>
                     setFormData({ ...formData, responsible: values.map(v => v.id) })
                   }
                   renderInput={(params) => (
@@ -591,9 +600,9 @@ export const TaskModalSimplified: React.FC<TaskModalProps> = ({
                 <Autocomplete
                   multiple
                   options={users}
-                  getOptionLabel={(option) => option.displayName}
+                  getOptionLabel={(option) => option.displayName || `${option.firstName} ${option.lastName}`}
                   value={users.filter(u => formData.accountable.includes(u.id))}
-                  onChange={(_, values) => 
+                  onChange={(_, values) =>
                     setFormData({ ...formData, accountable: values.map(v => v.id) })
                   }
                   renderInput={(params) => (
@@ -620,9 +629,9 @@ export const TaskModalSimplified: React.FC<TaskModalProps> = ({
                 <Autocomplete
                   multiple
                   options={users}
-                  getOptionLabel={(option) => option.displayName}
+                  getOptionLabel={(option) => option.displayName || `${option.firstName} ${option.lastName}`}
                   value={users.filter(u => formData.consulted.includes(u.id))}
-                  onChange={(_, values) => 
+                  onChange={(_, values) =>
                     setFormData({ ...formData, consulted: values.map(v => v.id) })
                   }
                   renderInput={(params) => (
@@ -647,9 +656,9 @@ export const TaskModalSimplified: React.FC<TaskModalProps> = ({
                 <Autocomplete
                   multiple
                   options={users}
-                  getOptionLabel={(option) => option.displayName}
+                  getOptionLabel={(option) => option.displayName || `${option.firstName} ${option.lastName}`}
                   value={users.filter(u => formData.informed.includes(u.id))}
-                  onChange={(_, values) => 
+                  onChange={(_, values) =>
                     setFormData({ ...formData, informed: values.map(v => v.id) })
                   }
                   renderInput={(params) => (

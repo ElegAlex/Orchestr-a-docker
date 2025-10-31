@@ -20,6 +20,7 @@ import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { Role } from '@prisma/client';
 
 @ApiTags('settings')
@@ -71,10 +72,34 @@ export class SettingsController {
     return this.settingsService.getSystemStats();
   }
 
+  @Public()
   @Get('maintenance')
   @ApiOperation({ summary: 'Vérifier le statut du mode maintenance' })
   @ApiResponse({ status: 200, description: 'Statut mode maintenance' })
   checkMaintenance() {
     return this.settingsService.checkMaintenanceMode();
+  }
+
+  @Public()
+  @Get('public')
+  @ApiOperation({ summary: 'Récupérer la configuration publique (calendrier, etc.)' })
+  @ApiResponse({ status: 200, description: 'Configuration publique' })
+  async getPublicSettings() {
+    try {
+      const settings = await this.settingsService.getSettings();
+      // Retourner uniquement les paramètres publics
+      return {
+        visibleWeekDays: settings.visibleWeekDays || [1, 2, 3, 4, 5],
+        maintenanceMode: settings.maintenanceMode || false,
+        maintenanceMessage: settings.maintenanceMessage,
+      };
+    } catch (error) {
+      // Si pas de configuration, retourner des valeurs par défaut
+      return {
+        visibleWeekDays: [1, 2, 3, 4, 5], // Lundi à vendredi par défaut
+        maintenanceMode: false,
+        maintenanceMessage: null,
+      };
+    }
   }
 }

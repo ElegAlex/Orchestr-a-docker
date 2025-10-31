@@ -1,29 +1,17 @@
-import {
-  collection,
-  doc,
-  getDocs,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-  QuerySnapshot,
-  DocumentData,
-} from 'firebase/firestore';
-import {
-  ref,
-  uploadBytesResumable,
-  getDownloadURL,
-  deleteObject,
-  getMetadata,
-} from 'firebase/storage';
-import { db, storage } from '../config/firebase';
+import attachmentsAPI from './api/attachments.api';
 import { TaskAttachment } from '../types';
 
-const ATTACHMENTS_COLLECTION = 'taskAttachments';
-const STORAGE_PATH = 'task-attachments';
+/**
+ * Service de gestion des pièces jointes
+ * Migration complète vers API REST backend + MinIO (17 oct 2025)
+ *
+ * Fonctionnalités:
+ * - Upload fichiers (single/multiple) avec suivi de progression
+ * - Gestion métadonnées (description, tags, visibilité)
+ * - Suppression fichiers
+ * - Statistiques pièces jointes
+ * - Utilitaires (validation, formatage, icônes)
+ */
 
 // Types utilitaires
 export interface UploadProgress {
@@ -38,67 +26,73 @@ export interface UploadResult {
   error?: string;
 }
 
-// Fonction utilitaire pour transformer les documents Firestore
-const transformFirestoreAttachment = (doc: any): TaskAttachment => {
-  const data = doc.data();
-  return {
-    id: doc.id,
-    ...data,
-    uploadedAt: data.uploadedAt?.toDate?.() || data.uploadedAt,
-  } as TaskAttachment;
-};
-
 class AttachmentService {
-  // Récupérer toutes les pièces jointes d'une tâche
+  // ========================================
+  // CRUD OPERATIONS - API REST
+  // ========================================
+
+  /**
+   * Récupère toutes les pièces jointes d'une tâche
+   */
   async getTaskAttachments(taskId: string): Promise<TaskAttachment[]> {
     try {
-      // Zero queries approach - fetch all and filter client-side
-      const querySnapshot = await getDocs(collection(db, ATTACHMENTS_COLLECTION));
-      const allAttachments = querySnapshot.docs.map(doc => transformFirestoreAttachment(doc));
-      
-      // Filter by taskId and sort by uploadedAt desc
-      return allAttachments
-        .filter(attachment => attachment.taskId === taskId)
-        .sort((a, b) => {
-          const dateA = a.uploadedAt instanceof Date ? a.uploadedAt : new Date(a.uploadedAt || 0);
-          const dateB = b.uploadedAt instanceof Date ? b.uploadedAt : new Date(b.uploadedAt || 0);
-          return dateB.getTime() - dateA.getTime();
-        });
+      const attachments = await attachmentsAPI.getTaskAttachments(taskId);
+
+      // Mapper les attachments de l'API vers TaskAttachment
+      return attachments.map(att => ({
+        id: att.id,
+        taskId: att.taskId || undefined,
+        projectId: att.projectId || undefined,
+        fileName: att.fileName,
+        originalName: att.originalName,
+        fileSize: parseInt(att.fileSize as string), // BigInt → number
+        mimeType: att.mimeType,
+        uploadedBy: att.uploadedBy,
+        uploadedAt: typeof att.uploadedAt === 'string' ? new Date(att.uploadedAt) : att.uploadedAt,
+        downloadUrl: att.downloadUrl || '',
+        description: att.description || '',
+        tags: att.tags || [],
+        isPublic: att.isPublic || false,
+        version: att.version || 1,
+        previousVersionId: att.previousVersionId || undefined,
+      } as TaskAttachment));
     } catch (error) {
       console.error('Erreur lors de la récupération des pièces jointes:', error);
       return [];
     }
   }
 
-  // Écouter les pièces jointes en temps réel
+  /**
+   * Écoute les pièces jointes en temps réel (simulation par polling)
+   * Note: L'API REST ne supporte pas les subscriptions temps réel.
+   * Cette méthode est conservée pour compatibilité mais utilise le polling.
+   */
   subscribeToTaskAttachments(
     taskId: string,
     callback: (attachments: TaskAttachment[]) => void
   ): () => void {
-    // Zero queries approach - listen to entire collection
-    const unsubscribe = onSnapshot(collection(db, ATTACHMENTS_COLLECTION), (querySnapshot: QuerySnapshot<DocumentData>) => {
-      const allAttachments = querySnapshot.docs.map(doc => transformFirestoreAttachment(doc));
-      
-      // Filter and sort client-side
-      const filteredAttachments = allAttachments
-        .filter(attachment => attachment.taskId === taskId)
-        .sort((a, b) => {
-          const dateA = a.uploadedAt instanceof Date ? a.uploadedAt : new Date(a.uploadedAt || 0);
-          const dateB = b.uploadedAt instanceof Date ? b.uploadedAt : new Date(b.uploadedAt || 0);
-          return dateB.getTime() - dateA.getTime();
-        });
-      
-      callback(filteredAttachments);
-    });
+    console.warn('subscribeToTaskAttachments: Real-time subscriptions not available with REST API. Using polling instead.');
 
-    return unsubscribe;
+    // Polling toutes les 5 secondes
+    const intervalId = setInterval(async () => {
+      const attachments = await this.getTaskAttachments(taskId);
+      callback(attachments);
+    }, 5000);
+
+    // Première exécution immédiate
+    this.getTaskAttachments(taskId).then(callback);
+
+    // Fonction de désabonnement
+    return () => clearInterval(intervalId);
   }
 
-  // Upload d'un fichier avec progress callback
+  /**
+   * Upload un fichier avec suivi de progression
+   */
   async uploadFile(
     file: File,
     taskId: string,
-    userId: string,
+    userId: string, // userId non utilisé (JWT token dans API client)
     description?: string,
     tags?: string[],
     onProgress?: (progress: UploadProgress) => void
@@ -110,80 +104,48 @@ class AttachmentService {
         return { attachment: {} as TaskAttachment, success: false, error: validationError };
       }
 
-      // Générer un nom de fichier unique
-      const timestamp = Date.now();
-      const randomId = Math.random().toString(36).substring(2, 15);
-      const extension = file.name.split('.').pop() || '';
-      const fileName = `${taskId}_${timestamp}_${randomId}.${extension}`;
-      const filePath = `${STORAGE_PATH}/${fileName}`;
-
-      // Créer la référence Storage
-      const storageRef = ref(storage, filePath);
-
-      // Upload avec monitoring du progress
-      const uploadTask = uploadBytesResumable(storageRef, file);
-
-      return new Promise((resolve) => {
-        uploadTask.on(
-          'state_changed',
-          (snapshot) => {
-            // Progress callback
-            if (onProgress) {
-              const progress: UploadProgress = {
-                loaded: snapshot.bytesTransferred,
-                total: snapshot.totalBytes,
-                percentage: (snapshot.bytesTransferred / snapshot.totalBytes) * 100
-              };
-              onProgress(progress);
-            }
-          },
-          (error) => {
-            console.error('Erreur lors de l\'upload:', error);
-            resolve({ attachment: {} as TaskAttachment, success: false, error: error.message });
-          },
-          async () => {
-            try {
-              // Upload terminé, récupérer l'URL
-              const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-              
-              // Créer l'entrée en base de données
-              const attachmentData = {
-                taskId,
-                fileName,
-                originalName: file.name,
-                fileSize: file.size,
-                mimeType: file.type,
-                uploadedBy: userId,
-                uploadedAt: new Date(),
-                downloadUrl,
-                description: description || '',
-                tags: tags || [],
-                isPublic: false,
-                version: 1,
-              };
-
-              const docRef = await addDoc(collection(db, ATTACHMENTS_COLLECTION), attachmentData);
-              
-              const attachment: TaskAttachment = {
-                id: docRef.id,
-                ...attachmentData,
-              };
-
-              resolve({ attachment, success: true });
-            } catch (error) {
-              console.error('Erreur lors de la sauvegarde en base:', error);
-              resolve({ attachment: {} as TaskAttachment, success: false, error: 'Erreur de sauvegarde' });
-            }
-          }
-        );
+      // Upload via API REST
+      const attachment = await attachmentsAPI.uploadFile(file, {
+        taskId,
+        description,
+        tags,
+        isPublic: false,
+        onProgress,
       });
-    } catch (error) {
-      console.error('Erreur générale lors de l\'upload:', error);
-      return { attachment: {} as TaskAttachment, success: false, error: 'Erreur générale' };
+
+      // Mapper vers TaskAttachment
+      const mappedAttachment: TaskAttachment = {
+        id: attachment.id,
+        taskId: attachment.taskId || undefined,
+        projectId: attachment.projectId || undefined,
+        fileName: attachment.fileName,
+        originalName: attachment.originalName,
+        fileSize: parseInt(attachment.fileSize as string),
+        mimeType: attachment.mimeType,
+        uploadedBy: attachment.uploadedBy,
+        uploadedAt: typeof attachment.uploadedAt === 'string' ? new Date(attachment.uploadedAt) : attachment.uploadedAt,
+        downloadUrl: attachment.downloadUrl || '',
+        description: attachment.description || '',
+        tags: attachment.tags || [],
+        isPublic: attachment.isPublic || false,
+        version: attachment.version || 1,
+        previousVersionId: attachment.previousVersionId || undefined,
+      };
+
+      return { attachment: mappedAttachment, success: true };
+    } catch (error: any) {
+      console.error('Erreur lors de l\'upload:', error);
+      return {
+        attachment: {} as TaskAttachment,
+        success: false,
+        error: error.message || 'Erreur lors de l\'upload'
+      };
     }
   }
 
-  // Upload de plusieurs fichiers
+  /**
+   * Upload de plusieurs fichiers
+   */
   async uploadMultipleFiles(
     files: File[],
     taskId: string,
@@ -195,7 +157,7 @@ class AttachmentService {
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      
+
       const result = await this.uploadFile(
         file,
         taskId,
@@ -212,52 +174,125 @@ class AttachmentService {
     return results;
   }
 
-  // Mettre à jour les métadonnées d'une pièce jointe
+  /**
+   * Met à jour les métadonnées d'une pièce jointe
+   */
   async updateAttachment(
     attachmentId: string,
     updates: Partial<Pick<TaskAttachment, 'description' | 'tags' | 'isPublic'>>
   ): Promise<void> {
     try {
-      const attachmentRef = doc(db, ATTACHMENTS_COLLECTION, attachmentId);
-      await updateDoc(attachmentRef, updates);
+      await attachmentsAPI.updateAttachment(attachmentId, updates);
     } catch (error) {
       console.error('Erreur lors de la mise à jour de la pièce jointe:', error);
       throw error;
     }
   }
 
-  // Supprimer une pièce jointe
+  /**
+   * Supprime une pièce jointe (fichier + métadonnées)
+   */
   async deleteAttachment(attachmentId: string): Promise<void> {
     try {
-      // Récupérer les infos de la pièce jointe
-      const attachments = await getDocs(
-        query(collection(db, ATTACHMENTS_COLLECTION), where('__name__', '==', attachmentId))
-      );
-      
-      if (attachments.empty) {
-        throw new Error('Pièce jointe non trouvée');
-      }
-
-      const attachment = transformFirestoreAttachment(attachments.docs[0]);
-      
-      // Supprimer le fichier du Storage
-      const storageRef = ref(storage, `${STORAGE_PATH}/${attachment.fileName}`);
-      try {
-        await deleteObject(storageRef);
-      } catch (storageError) {
-        console.warn('Fichier déjà supprimé du storage ou introuvable:', storageError);
-      }
-
-      // Supprimer l'entrée de la base de données
-      const attachmentRef = doc(db, ATTACHMENTS_COLLECTION, attachmentId);
-      await deleteDoc(attachmentRef);
+      await attachmentsAPI.deleteAttachment(attachmentId);
     } catch (error) {
       console.error('Erreur lors de la suppression de la pièce jointe:', error);
       throw error;
     }
   }
 
-  // Validation de fichier
+  // ========================================
+  // STATISTIQUES
+  // ========================================
+
+  /**
+   * Obtient les statistiques des pièces jointes d'une tâche
+   */
+  async getAttachmentStats(taskId: string): Promise<{
+    totalFiles: number;
+    totalSize: number;
+    fileTypes: Record<string, number>;
+    recentUploads: number;
+  }> {
+    try {
+      return await attachmentsAPI.getTaskAttachmentStats(taskId);
+    } catch (error) {
+      console.error('Erreur lors du calcul des statistiques:', error);
+      return {
+        totalFiles: 0,
+        totalSize: 0,
+        fileTypes: {},
+        recentUploads: 0,
+      };
+    }
+  }
+
+  // ========================================
+  // UTILITAIRES
+  // ========================================
+
+  /**
+   * Génère une URL de prévisualisation pour les images
+   */
+  async generateThumbnail(attachment: TaskAttachment): Promise<string | null> {
+    try {
+      if (!attachment.mimeType.startsWith('image/')) {
+        return null;
+      }
+
+      // Pour les images, on utilise l'URL de téléchargement
+      return attachment.downloadUrl;
+    } catch (error) {
+      console.error('Erreur lors de la génération de miniature:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Crée une nouvelle version d'un fichier
+   * Note: La gestion de version est simplifiée avec l'API REST
+   */
+  async createFileVersion(
+    originalAttachmentId: string,
+    newFile: File,
+    userId: string,
+    onProgress?: (progress: UploadProgress) => void
+  ): Promise<UploadResult> {
+    try {
+      // Récupérer l'attachment original
+      const originalAttachment = await attachmentsAPI.getAttachment(originalAttachmentId);
+
+      // Upload de la nouvelle version
+      const result = await this.uploadFile(
+        newFile,
+        originalAttachment.taskId!,
+        userId,
+        originalAttachment.description || undefined,
+        originalAttachment.tags,
+        onProgress
+      );
+
+      if (result.success && result.attachment.id) {
+        // Mettre à jour avec les infos de versioning si nécessaire
+        await this.updateAttachment(result.attachment.id, {
+          description: `Version ${originalAttachment.version + 1} de ${originalAttachment.originalName}`,
+        });
+      }
+
+      return result;
+    } catch (error: any) {
+      console.error('Erreur lors de la création de version:', error);
+      return {
+        attachment: {} as TaskAttachment,
+        success: false,
+        error: error.message || 'Erreur de création de version'
+      };
+    }
+  }
+
+  /**
+   * Validation de fichier
+   */
   private validateFile(file: File): string | null {
     const maxSize = 50 * 1024 * 1024; // 50MB
     const allowedTypes = [
@@ -286,113 +321,9 @@ class AttachmentService {
     return null;
   }
 
-  // Obtenir les statistiques des pièces jointes d'une tâche
-  async getAttachmentStats(taskId: string): Promise<{
-    totalFiles: number;
-    totalSize: number;
-    fileTypes: Record<string, number>;
-    recentUploads: number; // Dernières 24h
-  }> {
-    try {
-      const attachments = await this.getTaskAttachments(taskId);
-      
-      const now = new Date();
-      const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      
-      const stats = {
-        totalFiles: attachments.length,
-        totalSize: attachments.reduce((sum, att) => sum + att.fileSize, 0),
-        fileTypes: {} as Record<string, number>,
-        recentUploads: 0,
-      };
-
-      attachments.forEach(att => {
-        // Compter les types de fichiers
-        const extension = att.originalName.split('.').pop()?.toLowerCase() || 'unknown';
-        stats.fileTypes[extension] = (stats.fileTypes[extension] || 0) + 1;
-        
-        // Compter les uploads récents
-        if (att.uploadedAt > yesterday) {
-          stats.recentUploads++;
-        }
-      });
-
-      return stats;
-    } catch (error) {
-      console.error('Erreur lors du calcul des statistiques:', error);
-      return {
-        totalFiles: 0,
-        totalSize: 0,
-        fileTypes: {},
-        recentUploads: 0,
-      };
-    }
-  }
-
-  // Générer une URL de prévisualisation pour les images
-  async generateThumbnail(attachment: TaskAttachment): Promise<string | null> {
-    try {
-      if (!attachment.mimeType.startsWith('image/')) {
-        return null;
-      }
-
-      // Pour les images, on utilise directement l'URL de téléchargement
-      // Dans un vrai système, on pourrait générer des miniatures optimisées
-      return attachment.downloadUrl;
-    } catch (error) {
-      console.error('Erreur lors de la génération de miniature:', error);
-      return null;
-    }
-  }
-
-  // Créer une nouvelle version d'un fichier
-  async createFileVersion(
-    originalAttachmentId: string,
-    newFile: File,
-    userId: string,
-    onProgress?: (progress: UploadProgress) => void
-  ): Promise<UploadResult> {
-    try {
-      // Récupérer l'attachment original
-      const originalAttachments = await getDocs(
-        query(collection(db, ATTACHMENTS_COLLECTION), where('__name__', '==', originalAttachmentId))
-      );
-      
-      if (originalAttachments.empty) {
-        return { attachment: {} as TaskAttachment, success: false, error: 'Fichier original non trouvé' };
-      }
-
-      const originalAttachment = transformFirestoreAttachment(originalAttachments.docs[0]);
-      
-      // Upload de la nouvelle version
-      const result = await this.uploadFile(
-        newFile,
-        originalAttachment.taskId,
-        userId,
-        originalAttachment.description,
-        originalAttachment.tags,
-        onProgress
-      );
-
-      if (result.success) {
-        // Mettre à jour la nouvelle version avec les infos de versioning
-        await this.updateAttachment(result.attachment.id, {
-          // version: originalAttachment.version + 1, // Ne peut pas être mis à jour car pas dans les champs autorisés
-          // previousVersionId: originalAttachment.id, // Ne peut pas être mis à jour car pas dans les champs autorisés
-        });
-
-        // Note: Dans une vraie implémentation, il faudrait ajouter version et previousVersionId
-        // aux champs autorisés dans updateAttachment
-      }
-
-      return result;
-    } catch (error) {
-      console.error('Erreur lors de la création de version:', error);
-      return { attachment: {} as TaskAttachment, success: false, error: 'Erreur de création de version' };
-    }
-  }
-
-  // Formater la taille de fichier
+  /**
+   * Formate la taille de fichier pour affichage
+   */
   formatFileSize(bytes: number): string {
     const units = ['B', 'KB', 'MB', 'GB'];
     let size = bytes;
@@ -406,7 +337,9 @@ class AttachmentService {
     return `${size.toFixed(1)} ${units[unitIndex]}`;
   }
 
-  // Obtenir l'icône appropriée pour un type de fichier
+  /**
+   * Obtient l'icône appropriée pour un type de fichier
+   */
   getFileIcon(mimeType: string): string {
     if (mimeType.startsWith('image/')) return '🖼️';
     if (mimeType.startsWith('video/')) return '🎥';

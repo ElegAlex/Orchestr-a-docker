@@ -239,8 +239,11 @@ const ProjectTasks: React.FC<ProjectTasksProps> = ({ projectId }) => {
 
     // Regrouper les tâches filtrées par statut
     const grouped = filteredTasks.reduce((acc, task) => {
-      if (acc[task.status]) {
-        acc[task.status].push(task);
+      // Mapper COMPLETED → DONE pour compatibilité Kanban
+      const kanbanStatus = task.status === 'COMPLETED' ? 'DONE' : task.status;
+
+      if (acc[kanbanStatus]) {
+        acc[kanbanStatus].push(task);
       }
       return acc;
     }, {

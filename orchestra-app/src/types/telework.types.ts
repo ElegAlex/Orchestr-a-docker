@@ -1,5 +1,3 @@
-import { Timestamp } from 'firebase/firestore';
-
 // =====================================
 // TYPES CORE
 // =====================================
@@ -34,8 +32,8 @@ export interface UserTeleworkProfile {
     requiresApproval: boolean;         // Nécessite approbation manager
   };
   isActive: boolean;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+  createdAt: Date | string;
+  updatedAt: Date | string;
   createdBy: string;
   updatedBy: string;
 }
@@ -47,21 +45,21 @@ export interface UserTeleworkProfile {
 export interface TeleworkOverride {
   id: string;                          // userId_YYYY-MM-DD
   userId: string;
-  date: Timestamp;
+  date: Date | string;                 // Date object ou ISO string
   mode: TeleworkMode;
   reason?: string;                     // "Réunion importante", "RDV médical"
-  source: OverrideSource;
-  priority: number;                    // 1=basse, 5=critique
+  source?: OverrideSource;             // Géré automatiquement par le backend
+  priority?: number;                   // Géré automatiquement par le backend (1=basse, 5=critique)
   approvalStatus: ApprovalStatus;
   approvedBy?: string;
-  approvedAt?: Timestamp;
+  approvedAt?: Date | string;
   rejectedBy?: string;
-  rejectedAt?: Timestamp;
+  rejectedAt?: Date | string;
   rejectionReason?: string;
-  expiresAt?: Timestamp;               // Auto-suppression
+  expiresAt?: Date | string;           // Auto-suppression
   createdBy: string;
-  createdAt: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt: Date | string;
+  updatedAt?: Date | string;
   updatedBy?: string;
 }
 
@@ -95,8 +93,8 @@ export interface TeamTeleworkRule {
   isActive: boolean;
   exemptions: string[];                // UserIds exemptés
   createdBy: string;
-  createdAt: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt: Date | string;
+  updatedAt?: Date | string;
   updatedBy?: string;
 }
 
@@ -198,7 +196,7 @@ export interface TeleworkSystemConfig {
     sunday: boolean;
   };
   holidayCalendarId?: string;
-  updatedAt: Timestamp;
+  updatedAt: Date | string;
   updatedBy: string;
 }
 

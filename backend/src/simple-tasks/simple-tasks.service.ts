@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSimpleTaskDto, CreateMultipleSimpleTasksDto } from './dto/create-simple-task.dto';
 import { UpdateSimpleTaskDto } from './dto/update-simple-task.dto';
@@ -262,8 +262,19 @@ export class SimpleTasksService {
     });
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  /**
+   * BUG-04 FIX: Suppression avec vérification des permissions
+   * Seul le créateur ou l'assigné peut supprimer une tâche simple
+   */
+  async remove(id: string, currentUserId: string) {
+    const task = await this.findOne(id);
+
+    // Vérifier que l'utilisateur est soit le créateur, soit l'assigné
+    if (task.createdBy !== currentUserId && task.assignedTo !== currentUserId) {
+      throw new ForbiddenException(
+        'You can only delete simple tasks that you created or that are assigned to you'
+      );
+    }
 
     return this.prisma.simpleTask.delete({
       where: { id },

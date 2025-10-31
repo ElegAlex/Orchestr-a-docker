@@ -214,19 +214,19 @@ export const teleworkAPI = {
    * Create a default telework profile for a user
    */
   createProfile: (data: CreateUserTeleworkProfileRequest): Promise<UserTeleworkProfile> =>
-    apiClient.post('/telework/profiles', data).then((res) => res.data),
+    apiClient.post('/telework/profiles', data),
 
   /**
    * Get all telework profiles
    */
   getAllProfiles: (): Promise<UserTeleworkProfile[]> =>
-    apiClient.get('/telework/profiles').then((res) => res.data),
+    apiClient.get('/telework/profiles'),
 
   /**
    * Get a user's telework profile
    */
   getUserProfile: (userId: string): Promise<UserTeleworkProfile | null> =>
-    apiClient.get(`/telework/profiles/${userId}`).then((res) => res.data),
+    apiClient.get(`/telework/profiles/${userId}`),
 
   /**
    * Update a user's telework profile
@@ -235,7 +235,7 @@ export const teleworkAPI = {
     userId: string,
     data: UpdateUserTeleworkProfileRequest
   ): Promise<UserTeleworkProfile> =>
-    apiClient.patch(`/telework/profiles/${userId}`, data).then((res) => res.data),
+    apiClient.patch(`/telework/profiles/${userId}`, data),
 
   /**
    * Get or create a user's telework profile
@@ -246,8 +246,7 @@ export const teleworkAPI = {
     createdBy: string
   ): Promise<UserTeleworkProfile> =>
     apiClient
-      .post(`/telework/profiles/${userId}/get-or-create`, { displayName, createdBy })
-      .then((res) => res.data),
+      .post(`/telework/profiles/${userId}/get-or-create`, { displayName, createdBy }),
 
   // ==================== OVERRIDES ====================
 
@@ -255,19 +254,19 @@ export const teleworkAPI = {
    * Request a telework override
    */
   requestOverride: (data: CreateTeleworkOverrideRequest): Promise<TeleworkOverride> =>
-    apiClient.post('/telework/overrides', data).then((res) => res.data),
+    apiClient.post('/telework/overrides', data),
 
   /**
    * Get telework overrides with optional filters
    */
   getOverrides: (params?: GetOverridesQueryParams): Promise<TeleworkOverride[]> =>
-    apiClient.get('/telework/overrides', { params }).then((res) => res.data),
+    apiClient.get('/telework/overrides', { params }),
 
   /**
    * Get pending telework overrides
    */
   getPendingOverrides: (): Promise<TeleworkOverride[]> =>
-    apiClient.get('/telework/overrides/pending').then((res) => res.data),
+    apiClient.get('/telework/overrides/pending'),
 
   /**
    * Get user's telework overrides
@@ -280,38 +279,37 @@ export const teleworkAPI = {
     apiClient
       .get(`/telework/overrides/user/${userId}`, {
         params: { startDate, endDate },
-      })
-      .then((res) => res.data),
+      }),
 
   /**
    * Approve a telework override
    */
   approveOverride: (id: string, data: ApproveTeleworkOverrideRequest): Promise<TeleworkOverride> =>
-    apiClient.patch(`/telework/overrides/${id}/approve`, data).then((res) => res.data),
+    apiClient.patch(`/telework/overrides/${id}/approve`, data),
 
   /**
    * Reject a telework override
    */
   rejectOverride: (id: string, data: ApproveTeleworkOverrideRequest): Promise<TeleworkOverride> =>
-    apiClient.patch(`/telework/overrides/${id}/reject`, data).then((res) => res.data),
+    apiClient.patch(`/telework/overrides/${id}/reject`, data),
 
   /**
    * Delete a telework override
    */
   deleteOverride: (id: string): Promise<void> =>
-    apiClient.delete(`/telework/overrides/${id}`).then((res) => res.data),
+    apiClient.delete(`/telework/overrides/${id}`),
 
   /**
    * Validate a telework override request
    */
   validateOverrideRequest: (data: ValidateOverrideRequest): Promise<ValidationResult> =>
-    apiClient.post('/telework/overrides/validate', data).then((res) => res.data),
+    apiClient.post('/telework/overrides/validate', data),
 
   /**
    * Cleanup expired telework overrides
    */
   cleanupExpiredOverrides: (): Promise<{ deleted: number }> =>
-    apiClient.delete('/telework/overrides/cleanup').then((res) => res.data),
+    apiClient.delete('/telework/overrides/cleanup'),
 
   // ==================== TEAM RULES ====================
 
@@ -319,29 +317,29 @@ export const teleworkAPI = {
    * Create a team telework rule
    */
   createTeamRule: (data: CreateTeamTeleworkRuleRequest): Promise<TeamTeleworkRule> =>
-    apiClient.post('/telework/team-rules', data).then((res) => res.data),
+    apiClient.post('/telework/team-rules', data),
 
   /**
    * Get all team telework rules
    */
   getAllTeamRules: (): Promise<TeamTeleworkRule[]> =>
-    apiClient.get('/telework/team-rules').then((res) => res.data),
+    apiClient.get('/telework/team-rules'),
 
   /**
    * Get team telework rules for a specific user
    */
   getTeamRulesForUser: (userId: string): Promise<TeamTeleworkRule[]> =>
-    apiClient.get(`/telework/team-rules/user/${userId}`).then((res) => res.data),
+    apiClient.get(`/telework/team-rules/user/${userId}`),
 
   /**
    * Update a team telework rule
    */
   updateTeamRule: (id: string, data: UpdateTeamTeleworkRuleRequest): Promise<TeamTeleworkRule> =>
-    apiClient.patch(`/telework/team-rules/${id}`, data).then((res) => res.data),
+    apiClient.patch(`/telework/team-rules/${id}`, data),
 
   /**
    * Delete a team telework rule
    */
   deleteTeamRule: (id: string): Promise<void> =>
-    apiClient.delete(`/telework/team-rules/${id}`).then((res) => res.data),
+    apiClient.delete(`/telework/team-rules/${id}`),
 };

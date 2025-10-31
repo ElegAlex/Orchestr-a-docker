@@ -18,13 +18,15 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
+import { AttachmentsService } from '../attachments/attachments.service';
 
 @Controller('profile')
 @UseGuards(JwtAuthGuard)
 export class ProfileController {
-  constructor(private readonly profileService: ProfileService) {}
+  constructor(
+    private readonly profileService: ProfileService,
+    private readonly attachmentsService: AttachmentsService,
+  ) {}
 
   /**
    * GET /api/profile
@@ -56,46 +58,56 @@ export class ProfileController {
 
   /**
    * POST /api/profile/avatar
-   * Upload un avatar
-   * Note: Upload vers le système de fichiers local
-   * TODO: Migrer vers MinIO pour production
+   * Upload un avatar vers MinIO
+   * Utilise le service Attachments pour le stockage
    */
   @Post('avatar')
-  @UseInterceptors(
-    FileInterceptor('avatar', {
-      storage: diskStorage({
-        destination: './uploads/avatars',
-        filename: (req, file, callback) => {
-          const userId = (req as any).user.id;
-          const fileExtension = extname(file.originalname);
-          const filename = `${userId}-${Date.now()}${fileExtension}`;
-          callback(null, filename);
-        },
-      }),
-      fileFilter: (req, file, callback) => {
-        if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
-          return callback(
-            new BadRequestException('Seuls les fichiers JPG, PNG et WebP sont autorisés'),
-            false,
-          );
-        }
-        callback(null, true);
-      },
-      limits: {
-        fileSize: 5 * 1024 * 1024, // 5MB
-      },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('avatar'))
   async uploadAvatar(@Request() req, @UploadedFile() file: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException('Aucun fichier fourni');
     }
 
-    // Générer l'URL de l'avatar
-    const avatarUrl = `/uploads/avatars/${file.filename}`;
+    // Validation du fichier
+    if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
+      throw new BadRequestException('Seuls les fichiers JPG, PNG et WebP sont autorisés');
+    }
 
-    // Mettre à jour le profil avec la nouvelle URL
-    return this.profileService.updateProfile(req.user.id, { avatarUrl });
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      throw new BadRequestException('Le fichier est trop volumineux (max: 5MB)');
+    }
+
+    try {
+      // Upload vers MinIO via AttachmentsService
+      const attachment = await this.attachmentsService.uploadFile(
+        file,
+        {
+          originalName: file.originalname,
+          mimeType: file.mimetype,
+          fileSize: file.size,
+          description: 'Avatar utilisateur',
+          tags: ['avatar', 'profile'],
+          isPublic: false,
+        },
+        req.user.id,
+      );
+
+      // Générer URL signée pour l'avatar (7 jours)
+      const avatarUrl = await this.attachmentsService.getDownloadUrl(attachment.id);
+
+      // Mettre à jour le profil avec l'URL de l'avatar
+      await this.profileService.updateProfile(req.user.id, { avatarUrl });
+
+      return {
+        message: 'Avatar uploadé avec succès',
+        attachmentId: attachment.id,
+        avatarUrl,
+        user: await this.profileService.getMyProfile(req.user.id),
+      };
+    } catch (error) {
+      throw new BadRequestException(`Erreur lors de l'upload: ${error.message}`);
+    }
   }
 
   /**

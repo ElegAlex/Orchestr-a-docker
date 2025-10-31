@@ -55,6 +55,7 @@ import { leaveService } from '../services/leave.service';
 import { SimpleTaskModal } from '../components/calendar/SimpleTaskModal';
 import { useSelector } from 'react-redux';
 import { RootState } from '../store';
+import { useDepartmentFilter } from '../hooks/useDepartmentFilter';
 // Lazy loading du composant PlanningCalendar pour réduire la taille du bundle initial
 const PlanningCalendar = lazy(() => import('../components/calendar/PlanningCalendar'));
 
@@ -86,6 +87,8 @@ interface CalendarEvent {
 
 type CalendarView = 'month' | 'week' | 'day';
 const Calendar: React.FC = () => {
+  const departmentFilter = useDepartmentFilter(); // 🔒 Hook d'isolation par département
+
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<CalendarView>('month');
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -181,7 +184,8 @@ const Calendar: React.FC = () => {
         simpleTaskService.getAll(), // Toutes les tâches simples
         projectService.getActiveProjects(),
         serviceService.getAllServices(), // Services
-        currentUser?.id ? leaveService.getUserLeaves(currentUser.id) : Promise.resolve([]), // Congés
+        // 🔒 Congés filtrés par département (null pour ADMIN/RESPONSABLE, departmentId pour les autres)
+        leaveService.getAllLeaves({ departmentId: departmentFilter }),
       ]);
 
       setProjects(projectsData);
@@ -359,14 +363,14 @@ const Calendar: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentUser]);
+  }, [currentUser, departmentFilter]); // 🔒 Recharger quand le filtre département change
 
-  // Charger les données au montage et quand l'utilisateur change
+  // Charger les données au montage et quand l'utilisateur ou le filtre change
   useEffect(() => {
     if (currentUser) {
       loadData();
     }
-  }, [currentUser, loadData]);
+  }, [currentUser, departmentFilter, loadData]); // 🔒 Dépendance sur departmentFilter
 
   // Mémoisation des fonctions pour éviter les re-renders
   const navigateDate = useCallback((direction: 'prev' | 'next') => {
@@ -949,7 +953,7 @@ const Calendar: React.FC = () => {
         }>
           <PlanningCalendar
             selectedProjects={[]} // Filtre projets supprimé
-            selectedUsers={[]} // ✅ Calendar général : pas de filtre utilisateur
+            selectedUsers={currentUser?.id ? [currentUser.id] : []} // ✅ Afficher l'utilisateur courant
             selectedServices={selectedServices}
             services={services}
             onTaskUpdate={handleTaskUpdate}

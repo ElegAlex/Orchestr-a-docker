@@ -50,6 +50,10 @@ class MilestoneService {
     try {
       const milestones = await milestoneApi.getByProject(projectId);
 
+      if (!milestones || !Array.isArray(milestones)) {
+        return [];
+      }
+
       return milestones.map(this.convertFromApi);
     } catch (error) {
       console.error('Error getting project milestones:', error);

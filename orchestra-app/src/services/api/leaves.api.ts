@@ -50,6 +50,7 @@ export interface RejectLeaveRequest {
 
 export interface GetLeavesParams {
   userId?: string;
+  departmentId?: string | null; // Filtre par département (null = tous les départements)
   status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
   type?: 'PAID_LEAVE' | 'SICK_LEAVE' | 'RTT' | 'UNPAID_LEAVE' | 'PARENTAL_LEAVE';
   startDate?: string;

@@ -59,6 +59,19 @@ export class UserService {
   }
 
   /**
+   * Supprimer définitivement un utilisateur (hard delete)
+   * À utiliser avec précaution !
+   */
+  async hardDeleteUser(userId: string): Promise<void> {
+    try {
+      await usersAPI.hardDeleteUser(userId);
+    } catch (error: any) {
+      console.error('Error hard deleting user:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Récupérer les dépendances d'un utilisateur (stats)
    */
   async getUserDependencies(userId: string): Promise<{
@@ -130,11 +143,13 @@ export class UserService {
 
   /**
    * Récupérer tous les utilisateurs
+   * @param departmentId Filtre optionnel par département (null = tous les départements, string = département spécifique)
    */
-  async getAllUsers(): Promise<User[]> {
+  async getAllUsers(departmentId?: string | null): Promise<User[]> {
     try {
       const response = await usersAPI.getUsers({
-        limit: 1000, // Récupérer beaucoup d'utilisateurs
+        limit: 100, // Backend max limit
+        departmentId: departmentId ?? undefined, // null devient undefined pour ne pas envoyer le paramètre
       });
 
       return response.data.sort((a, b) => {
@@ -155,7 +170,7 @@ export class UserService {
     try {
       const response = await usersAPI.getUsers({
         isActive: true,
-        limit: 1000,
+        limit: 100,
       });
 
       return response.data;

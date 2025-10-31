@@ -8,6 +8,7 @@ export interface User {
   permissions?: string[];
   avatarUrl?: string;
   department?: string;
+  departmentId?: string | null; // ID du département (pour isolation)
   managerId?: string; // ID du manager de l'utilisateur (pour hiérarchie)
   serviceId?: string; // Deprecated - à supprimer progressivement
   serviceIds?: string[]; // Nouveau: support multi-services  
@@ -27,7 +28,9 @@ export interface User {
   createdBy?: string; // ID de l'admin qui a créé l'utilisateur
 }
 
-export type UserRole = 'admin' | 'responsable' | 'manager' | 'teamLead' | 'contributor' | 'viewer';
+// Les rôles utilisateur correspondent aux valeurs renvoyées par le backend (en MAJUSCULES)
+// Voir backend/prisma/schema.prisma enum Role
+export type UserRole = 'ADMIN' | 'RESPONSABLE' | 'MANAGER' | 'TEAM_LEAD' | 'CONTRIBUTOR' | 'VIEWER';
 
 export interface Skill {
   id: string;

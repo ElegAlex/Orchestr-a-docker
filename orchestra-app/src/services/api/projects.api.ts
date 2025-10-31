@@ -42,6 +42,7 @@ export interface ProjectsQueryParams {
   status?: ProjectStatus;
   priority?: Priority;
   managerId?: string;
+  departmentId?: string | null; // Filtre par département (null = tous les départements)
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
 }

@@ -48,6 +48,22 @@ export class UserServiceAssignmentService {
    */
   async addServiceToUser(userId: string, serviceId: string): Promise<void> {
     try {
+      // Vérifier si l'assignation existe déjà (active ou inactive)
+      // Note: getByUser() filtre par isActive, donc on utilise getAll() pour tout récupérer
+      const allAssignments = await userServiceAssignmentsApi.getAll().catch(() => []);
+      const existingAssignment = (allAssignments || []).find(
+        a => a.userId === userId && a.serviceId === serviceId
+      );
+
+      if (existingAssignment) {
+        // Si l'assignation existe mais est inactive, la réactiver
+        if (!existingAssignment.isActive) {
+          await userServiceAssignmentsApi.update(existingAssignment.id, { isActive: true });
+        }
+        return;
+      }
+
+      // Sinon, créer une nouvelle assignation
       const dto: CreateAssignmentDto = {
         userId,
         serviceId,
@@ -55,11 +71,6 @@ export class UserServiceAssignmentService {
       };
       await userServiceAssignmentsApi.create(dto);
     } catch (error) {
-      // Si l'assignation existe déjà, on l'ignore
-      if ((error as any)?.response?.status === 400) {
-        console.log('Assignment already exists, skipping');
-        return;
-      }
       console.error('Error adding service to user:', error);
       throw error;
     }
@@ -70,11 +81,16 @@ export class UserServiceAssignmentService {
    */
   async removeServiceFromUser(userId: string, serviceId: string): Promise<void> {
     try {
-      const assignments = await userServiceAssignmentsApi.getByUser(userId);
-      const assignment = assignments.find(a => a.serviceId === serviceId);
+      // getByUser() retourne directement un tableau via .data destructuré dans l'API
+      const assignments = await userServiceAssignmentsApi.getByUser(userId).catch(() => []);
+      const assignment = (assignments || []).find(a => a.serviceId === serviceId && a.isActive);
 
       if (assignment) {
+        console.log(`Suppression de l'assignation ${assignment.id} pour userId=${userId}, serviceId=${serviceId}`);
         await userServiceAssignmentsApi.delete(assignment.id);
+        console.log(`Assignation ${assignment.id} supprimée avec succès`);
+      } else {
+        console.warn(`Aucune assignation active trouvée pour userId=${userId}, serviceId=${serviceId}`);
       }
     } catch (error) {
       console.error('Error removing service from user:', error);
@@ -136,11 +152,12 @@ export class UserServiceAssignmentService {
       const stats = await userServiceAssignmentsApi.getStats();
       // Note: Cette méthode nécessiterait un endpoint dédié pour être précise
       // Pour l'instant, on retourne une liste vide
-      console.warn('getUnassignedUsers: méthode simplifiée, utiliser l\'endpoint users avec filtres');
+      // TODO: Utiliser l'endpoint users avec filtres pour plus de précision
       return [];
     } catch (error) {
       console.error('Error fetching unassigned users:', error);
-      throw error;
+      // Retourner tableau vide au lieu de throw pour ne pas casser l'UI
+      return [];
     }
   }
 
@@ -161,16 +178,33 @@ export class UserServiceAssignmentService {
     try {
       const stats = await userServiceAssignmentsApi.getStats();
 
+      // Vérifier que stats existe et a les propriétés attendues
+      if (!stats || typeof stats.totalUsers === 'undefined') {
+        // Retour silencieux des valeurs par défaut si stats invalides
+        return {
+          totalUsers: 0,
+          assignedUsers: 0,
+          unassignedUsers: 0,
+          serviceBreakdown: [],
+        };
+      }
+
       // Transformation pour compatibilité avec l'ancien format
       return {
-        totalUsers: stats.totalUsers,
-        assignedUsers: stats.assignedUsersCount,
-        unassignedUsers: stats.unassignedUsersCount,
+        totalUsers: stats.totalUsers || 0,
+        assignedUsers: stats.assignedUsersCount || 0,
+        unassignedUsers: stats.unassignedUsersCount || 0,
         serviceBreakdown: [], // Nécessiterait des appels supplémentaires
       };
     } catch (error) {
-      console.error('Error fetching service assignment stats:', error);
-      throw error;
+      // Retourner silencieusement des valeurs par défaut au lieu de throw pour ne pas casser l'UI
+      // Note: L'erreur est normale si l'utilisateur n'est pas authentifié
+      return {
+        totalUsers: 0,
+        assignedUsers: 0,
+        unassignedUsers: 0,
+        serviceBreakdown: [],
+      };
     }
   }
 

@@ -73,6 +73,7 @@ import LoadingSpinner from '../components/common/LoadingSpinner';
 import { capacityService } from '../services/capacity.service';
 import { userService } from '../services/user.service';
 import { UserConfigDialog } from '../components/hr/UserConfigDialog';
+import { LeaveTypesTab } from '../components/hr/LeaveTypesTab';
 import { TeamManagementTab } from '../components/resources/TeamManagementTab';
 import { SkillsMatrixTab } from '../components/resources/SkillsMatrixTab';
 import { SchoolHolidaysTab } from '../components/hr/SchoolHolidaysTab';
@@ -174,25 +175,20 @@ const HRAdmin: React.FC = () => {
 
       // Charger les contrats pour tous les utilisateurs en parallèle
       const contractsData: { [userId: string]: WorkContract } = {};
-      console.log('🔄 Chargement des contrats pour', usersData.length, 'utilisateurs...');
-      
+      console.log('🔄 [HRAdmin] Chargement des contrats pour', usersData.length, 'utilisateurs...');
+
       const contractPromises = usersData.map(async (user) => {
         try {
           const contract = await capacityService.getUserContract(user.id);
-          if (contract) {
-            contractsData[user.id] = contract;
-            console.log('✅ Contrat chargé pour', user.displayName, ':', contract.id);
-          } else {
-            console.log('⚪ Pas de contrat pour', user.displayName);
-          }
+          contractsData[user.id] = contract;
         } catch (error) {
-          console.warn(`❌ Erreur contrat pour ${user.displayName}:`, error);
+          const userName = user.displayName || `${user.firstName} ${user.lastName}`;
+          console.error(`[HRAdmin] Erreur chargement contrat pour ${userName}:`, error);
         }
       });
-      
+
       await Promise.all(contractPromises);
       setSelectedUserContracts(contractsData);
-      console.log('📋 Contrats chargés:', Object.keys(contractsData).length, 'sur', usersData.length);
 
       // Charger les congés pour tous les utilisateurs
       const leavesData: { [userId: string]: LeaveRequest[] } = {};
@@ -200,6 +196,7 @@ const HRAdmin: React.FC = () => {
 
       const leavesPromises = usersData.map(async (user) => {
         try {
+          const userName = user.displayName || `${user.firstName} ${user.lastName}`;
           const leaves = await leaveService.getUserLeaves(user.id);
           // Filtrer pour ne garder que les congés approuvés (en cours ou futurs)
           const currentLeaves = leaves.filter(leave =>
@@ -207,10 +204,11 @@ const HRAdmin: React.FC = () => {
           );
           if (currentLeaves.length > 0) {
             leavesData[user.id] = currentLeaves;
-            console.log('✅ Congés chargés pour', user.displayName, ':', currentLeaves.length);
+            console.log('✅ Congés chargés pour', userName, ':', currentLeaves.length);
           }
         } catch (error) {
-          console.warn(`❌ Erreur congés pour ${user.displayName}:`, error);
+          const userName = user.displayName || `${user.firstName} ${user.lastName}`;
+          console.warn(`❌ Erreur congés pour ${userName}:`, error);
         }
       });
 
@@ -304,22 +302,22 @@ const HRAdmin: React.FC = () => {
   // Gestion de la configuration utilisateur
   const handleUserConfigSave = async (contractData: Partial<WorkContract>) => {
     try {
-      console.log('🔧 Sauvegarde contrat:', { selectedUser, selectedContract, contractData });
-      
-      if (selectedContract && selectedContract.id && !selectedContract.id.startsWith('virtual-')) {
-        // Mise à jour d'un contrat existant
-        console.log('📝 Mise à jour contrat existant:', selectedContract.id);
-        await capacityService.updateContract(selectedContract.id, contractData);
-      } else if (selectedUser) {
-        // Création d'un nouveau contrat
-        console.log('➕ Création nouveau contrat pour:', selectedUser.id);
-        await capacityService.createContract(selectedUser.id, contractData);
+      if (!selectedUser) {
+        throw new Error('Aucun utilisateur sélectionné');
       }
-      console.log('✅ Sauvegarde réussie, rechargement des données...');
+
+      const isVirtual = capacityService.isVirtualContract(selectedContract);
+
+      if (isVirtual) {
+        await capacityService.createContract(selectedUser.id, contractData);
+      } else {
+        await capacityService.updateContract(selectedContract!.id, contractData);
+      }
+
       await loadAllData();
-      console.log('✅ Données rechargées');
+
     } catch (error) {
-      console.error('❌ Erreur lors de la sauvegarde:', error);
+      console.error('[HRAdmin] Erreur lors de la sauvegarde:', error);
       alert(`Erreur lors de la sauvegarde du contrat: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
@@ -544,6 +542,7 @@ const HRAdmin: React.FC = () => {
             <Tab label="Ressources" />
             <Tab label="Jours fériés" />
             <Tab label="Congés scolaires" />
+            <Tab label="Types de congés" />
             <Tab label="Paramètres globaux" />
             <Tab label="Compétences" />
             <Tab label="Skills Matrix" />
@@ -565,7 +564,7 @@ const HRAdmin: React.FC = () => {
             {users.map((user) => {
               const contract = selectedUserContracts[user.id];
               return (
-                <Box sx={{ width: '100%' }}>
+                <Box key={user.id} sx={{ width: '100%' }}>
                   <Card 
                     variant="outlined"
                     sx={{ 
@@ -588,10 +587,12 @@ const HRAdmin: React.FC = () => {
                         </Avatar>
                         <Box>
                           <Typography variant="h6" noWrap>
-                            {user.displayName}
+                            {user.displayName || `${user.firstName} ${user.lastName}`}
                           </Typography>
                           <Typography variant="body2" color="text.secondary" noWrap>
-                            {user.department || 'Département non défini'}
+                            {typeof user.department === 'object' && user.department !== null
+                              ? user.department.name
+                              : user.department || 'Département non défini'}
                           </Typography>
                           <Box display="flex" alignItems="center" gap={1} mt={1}>
                             {user.isActive ? (
@@ -764,13 +765,6 @@ const HRAdmin: React.FC = () => {
                         >
                           Configurer
                         </Button>
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={(e) => handleDeleteClick(user, e)}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
                       </Box>
                       </Box>
                     </CardContent>
@@ -943,8 +937,13 @@ const HRAdmin: React.FC = () => {
           <SchoolHolidaysTab />
         </TabPanel>
 
-        {/* Onglet Paramètres globaux */}
+        {/* Onglet Types de congés */}
         <TabPanel value={tabValue} index={3}>
+          <LeaveTypesTab />
+        </TabPanel>
+
+        {/* Onglet Paramètres globaux */}
+        <TabPanel value={tabValue} index={4}>
           <Typography variant="h6" gutterBottom>
             ⚙️ Paramètres globaux RH
           </Typography>
@@ -1149,7 +1148,7 @@ const HRAdmin: React.FC = () => {
 
           <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
             {users.slice(0, 12).map((user) => (
-              <Box>
+              <Box key={user.id}>
                 <Card variant="outlined">
                   <CardContent>
                     <Box display="flex" alignItems="center" gap={2} mb={2}>
@@ -1158,10 +1157,12 @@ const HRAdmin: React.FC = () => {
                       </Avatar>
                       <Box>
                         <Typography variant="body1" fontWeight="bold">
-                          {user.displayName}
+                          {user.displayName || `${user.firstName} ${user.lastName}`}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          {user.department}
+                          {typeof user.department === 'object' && user.department !== null
+                            ? user.department.name
+                            : user.department || 'Non défini'}
                         </Typography>
                       </Box>
                     </Box>
@@ -1195,17 +1196,17 @@ const HRAdmin: React.FC = () => {
         </TabPanel>
 
         {/* Onglet Compétences */}
-        <TabPanel value={tabValue} index={4}>
+        <TabPanel value={tabValue} index={5}>
           <TeamManagementTab />
         </TabPanel>
 
         {/* Onglet Skills Matrix */}
-        <TabPanel value={tabValue} index={5}>
+        <TabPanel value={tabValue} index={6}>
           <SkillsMatrixTab />
         </TabPanel>
 
         {/* Onglet Capacités (désactivé pour l'instant) */}
-        <TabPanel value={tabValue} index={6}>
+        <TabPanel value={tabValue} index={7}>
           <Typography variant="h6" gutterBottom>
             Analyse de capacité - {selectedPeriod.label}
           </Typography>
@@ -1227,7 +1228,7 @@ const HRAdmin: React.FC = () => {
                         </Avatar>
                         <Box>
                           <Typography variant="body1" fontWeight="bold">
-                            {user?.displayName}
+                            {user?.displayName || (user ? `${user.firstName} ${user.lastName}` : 'N/A')}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
                             {Math.round(utilizationRate)}% d'utilisation
@@ -1322,7 +1323,7 @@ const HRAdmin: React.FC = () => {
           {userToDelete && (
             <Box>
               <Alert severity="warning" sx={{ mb: 2 }}>
-                Vous êtes sur le point de désactiver le compte de <strong>{userToDelete.displayName}</strong>.
+                Vous êtes sur le point de désactiver le compte de <strong>{userToDelete.displayName || `${userToDelete.firstName} ${userToDelete.lastName}`}</strong>.
                 Cette action est réversible mais l'utilisateur ne pourra plus se connecter.
               </Alert>
 

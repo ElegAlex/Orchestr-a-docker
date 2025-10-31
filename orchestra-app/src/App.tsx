@@ -9,6 +9,7 @@ import { AuthProvider } from './components/auth/AuthProvider';
 import { LoginForm } from './components/auth/LoginForm';
 import { MainLayout } from './components/layout/MainLayout';
 import { PrivateRoute } from './components/PrivateRoute';
+import { RoleGuard } from './components/RoleGuard';
 
 // Lazy-loaded components for better performance
 const DashboardHub = React.lazy(() => import('./pages/DashboardHub'));
@@ -26,6 +27,7 @@ const Settings = React.lazy(() => import('./pages/Settings').then(module => ({ d
 const Profile = React.lazy(() => import('./pages/Profile'));
 const TeamSupervision = React.lazy(() => import('./pages/TeamSupervision'));
 const Tutorial = React.lazy(() => import('./pages/Tutorial'));
+const LeaveApprovalPage = React.lazy(() => import('./pages/LeaveApprovalPage'));
 
 // Loading fallback component
 const LoadingFallback = () => (
@@ -96,32 +98,42 @@ function AppContent() {
             </Suspense>
           } />
           <Route path="projects" element={
-            <Suspense fallback={<LoadingFallback />}>
-              <Projects />
-            </Suspense>
+            <RoleGuard allowedRoles={['ADMIN', 'RESPONSABLE', 'MANAGER']}>
+              <Suspense fallback={<LoadingFallback />}>
+                <Projects />
+              </Suspense>
+            </RoleGuard>
           } />
           <Route path="projects/create" element={
-            <Suspense fallback={<LoadingFallback />}>
-              <ProjectCreate />
-            </Suspense>
+            <RoleGuard allowedRoles={['ADMIN', 'RESPONSABLE', 'MANAGER']}>
+              <Suspense fallback={<LoadingFallback />}>
+                <ProjectCreate />
+              </Suspense>
+            </RoleGuard>
           } />
           <Route path="projects/:projectId" element={
             <ProjectDetailWrapper />
           } />
           <Route path="projects/:projectId/edit" element={
-            <Suspense fallback={<LoadingFallback />}>
-              <ProjectEdit />
-            </Suspense>
+            <RoleGuard allowedRoles={['ADMIN', 'RESPONSABLE', 'MANAGER']}>
+              <Suspense fallback={<LoadingFallback />}>
+                <ProjectEdit />
+              </Suspense>
+            </RoleGuard>
           } />
           <Route path="tasks" element={
-            <Suspense fallback={<LoadingFallback />}>
-              <Tasks />
-            </Suspense>
+            <RoleGuard allowedRoles={['ADMIN', 'RESPONSABLE', 'MANAGER']}>
+              <Suspense fallback={<LoadingFallback />}>
+                <Tasks />
+              </Suspense>
+            </RoleGuard>
           } />
           <Route path="simple-resources" element={
-            <Suspense fallback={<LoadingFallback />}>
-              <SimpleResources />
-            </Suspense>
+            <RoleGuard allowedRoles={['ADMIN', 'RESPONSABLE', 'MANAGER']}>
+              <Suspense fallback={<LoadingFallback />}>
+                <SimpleResources />
+              </Suspense>
+            </RoleGuard>
           } />
           <Route path="calendar" element={
             <Suspense fallback={<LoadingFallback />}>
@@ -129,19 +141,25 @@ function AppContent() {
             </Suspense>
           } />
           <Route path="reports" element={
-            <Suspense fallback={<LoadingFallback />}>
-              <Reports />
-            </Suspense>
+            <RoleGuard allowedRoles={['ADMIN', 'RESPONSABLE', 'MANAGER']}>
+              <Suspense fallback={<LoadingFallback />}>
+                <Reports />
+              </Suspense>
+            </RoleGuard>
           } />
           <Route path="hr-admin" element={
-            <Suspense fallback={<LoadingFallback />}>
-              <HRAdmin />
-            </Suspense>
+            <RoleGuard allowedRoles={['ADMIN', 'RESPONSABLE']}>
+              <Suspense fallback={<LoadingFallback />}>
+                <HRAdmin />
+              </Suspense>
+            </RoleGuard>
           } />
           <Route path="settings" element={
-            <Suspense fallback={<LoadingFallback />}>
-              <Settings />
-            </Suspense>
+            <RoleGuard allowedRoles={['ADMIN']}>
+              <Suspense fallback={<LoadingFallback />}>
+                <Settings />
+              </Suspense>
+            </RoleGuard>
           } />
           <Route path="profile" element={
             <Suspense fallback={<LoadingFallback />}>
@@ -149,14 +167,23 @@ function AppContent() {
             </Suspense>
           } />
           <Route path="team-supervision" element={
-            <Suspense fallback={<LoadingFallback />}>
-              <TeamSupervision />
-            </Suspense>
+            <RoleGuard allowedRoles={['ADMIN', 'RESPONSABLE', 'MANAGER']}>
+              <Suspense fallback={<LoadingFallback />}>
+                <TeamSupervision />
+              </Suspense>
+            </RoleGuard>
           } />
           <Route path="tutorial" element={
             <Suspense fallback={<LoadingFallback />}>
               <Tutorial />
             </Suspense>
+          } />
+          <Route path="leave-approval" element={
+            <RoleGuard allowedRoles={['ADMIN', 'RESPONSABLE', 'MANAGER']}>
+              <Suspense fallback={<LoadingFallback />}>
+                <LeaveApprovalPage />
+              </Suspense>
+            </RoleGuard>
           } />
         </Route>
       </Routes>

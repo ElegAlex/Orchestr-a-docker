@@ -2,6 +2,8 @@
  * Dashboard Hub V2 Service
  * Service dédié pour le nouveau Dashboard Hub opérationnel
  * Gère les données personnelles de l'utilisateur connecté
+ *
+ * MIGRATION: 100% API REST (Firebase supprimé)
  */
 
 import { Task, Project } from '../types';
@@ -9,8 +11,7 @@ import { SimpleTask } from '../types/simpleTask';
 import { taskService } from './task.service';
 import { projectService } from './project.service';
 import { simpleTaskService } from './simpleTask.service';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { projectsAPI } from './api/projects.api';
 
 export interface TasksByUrgency {
   overdue: Task[];      // En retard (dueDate < now)
@@ -70,14 +71,24 @@ class DashboardHubV2Service {
   /**
    * Récupère les tâches simples de l'utilisateur non terminées
    * Triées par date (plus anciennes d'abord)
+   * BUG-07 FIX: Filtre les tâches dont la date est dépassée
    */
   async getMySimpleTasks(userId: string): Promise<SimpleTask[]> {
     try {
       // Récupérer toutes les tâches de l'utilisateur
       const allSimpleTasks = await simpleTaskService.getByUser(userId);
 
-      // Filtrer uniquement celles qui ne sont pas terminées
-      const incompleteTasks = allSimpleTasks.filter(task => task.status !== 'DONE');
+      // Date du jour à minuit (pour comparaison)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Filtrer uniquement celles qui ne sont pas terminées ET dont la date est >= aujourd'hui
+      const incompleteTasks = allSimpleTasks.filter(task => {
+        const taskDate = new Date(task.date);
+        taskDate.setHours(0, 0, 0, 0);
+
+        return task.status !== 'DONE' && taskDate >= today;
+      });
 
       // Trier par date (plus anciennes d'abord)
       return incompleteTasks.sort((a, b) => a.date.getTime() - b.date.getTime());
@@ -173,67 +184,33 @@ class DashboardHubV2Service {
 
   /**
    * Récupère les projets où l'utilisateur est membre d'équipe avec métriques
+   *
+   * MIGRATION: Utilise l'API REST au lieu de Firebase
    */
   async getMyProjectsWithMetrics(userId: string, myTasks: Task[]): Promise<ProjectWithMetrics[]> {
     try {
       // Récupérer les projets où l'utilisateur est membre
       const projects = await projectService.getProjectsByTeamMember(userId);
 
-      // Enrichir avec les métriques de tâches ET recalculer le progress à la volée
+      // Enrichir avec les métriques de tâches en utilisant l'API REST
       const projectsWithMetrics: ProjectWithMetrics[] = await Promise.all(
         projects.map(async project => {
           // Filtrer les tâches du projet qui sont assignées à l'utilisateur
           const projectTasks = myTasks.filter(task => task.projectId === project.id);
 
-          // Recalculer le progress à la volée en excluant les sous-tâches
+          // Utiliser l'API REST pour récupérer les stats du projet (progress déjà calculé par le backend)
           let calculatedProgress = project.progress; // Par défaut, garder la valeur de la base
           try {
-            const tasksQuery = query(
-              collection(db, 'tasks'),
-              where('projectId', '==', project.id)
-            );
-            const tasksSnapshot = await getDocs(tasksQuery);
-
-            if (!tasksSnapshot.empty) {
-              let totalTasks = 0;
-              let completedTasks = 0;
-              let totalStoryPoints = 0;
-              let completedStoryPoints = 0;
-
-              tasksSnapshot.docs.forEach(doc => {
-                const task = doc.data() as Task;
-
-                // Exclure les sous-tâches
-                if (task.parentTaskId) {
-                  return;
-                }
-
-                totalTasks++;
-                const storyPoints = task.storyPoints || 1;
-                totalStoryPoints += storyPoints;
-
-                if (task.status === 'DONE') {
-                  completedTasks++;
-                  completedStoryPoints += storyPoints;
-                }
-              });
-
-              // Calculer le progrès basé sur les story points si disponibles, sinon sur le nombre de tâches
-              if (totalStoryPoints > 0) {
-                calculatedProgress = Math.round((completedStoryPoints / totalStoryPoints) * 100);
-              } else if (totalTasks > 0) {
-                calculatedProgress = Math.round((completedTasks / totalTasks) * 100);
-              } else {
-                calculatedProgress = 0;
-              }
-            }
+            const stats = await projectsAPI.getProjectStats(project.id);
+            calculatedProgress = stats.progress; // Progress déjà calculé par le backend
           } catch (error) {
-            console.error(`Error calculating progress for project ${project.id}:`, error);
+            console.error(`Error fetching stats for project ${project.id}:`, error);
+            // En cas d'erreur, garder la valeur du projet
           }
 
           return {
             ...project,
-            progress: calculatedProgress, // Utiliser le progress recalculé
+            progress: calculatedProgress, // Utiliser le progress calculé par le backend
             myTasksCount: projectTasks.length,
             myTasksOverdue: projectTasks.filter(task =>
               task.dueDate && new Date(task.dueDate) < new Date()

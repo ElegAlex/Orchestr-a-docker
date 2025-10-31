@@ -155,7 +155,7 @@ export class TaskService {
   async getTasks(): Promise<Task[]> {
     try {
       const response = await tasksAPI.getTasks({
-        limit: 1000,
+        limit: 100,
       });
 
       return response.data;
@@ -310,7 +310,7 @@ export class TaskService {
       const response = await tasksAPI.getTasks({
         status,
         projectId,
-        limit: 1000,
+        limit: 100,
       });
 
       return response.data;

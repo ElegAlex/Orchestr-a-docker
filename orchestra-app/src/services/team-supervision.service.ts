@@ -1,11 +1,8 @@
-import {
-  collection,
-  query,
-  where,
-  getDocs
-} from 'firebase/firestore';
-import { db } from '../config/firebase';
 import { Task, Project, User } from '../types';
+import { usersAPI } from './api/users.api';
+import { tasksAPI } from './api/tasks.api';
+import { projectsAPI } from './api/projects.api';
+import { milestoneApi } from './api/milestone.api';
 
 export interface ProjectWithMilestones {
   project: Project;
@@ -27,40 +24,33 @@ class TeamSupervisionService {
    */
   async getTeamMembers(userId: string, userRole: string, userDepartment?: string): Promise<User[]> {
     try {
-      const usersRef = collection(db, 'users');
       let teamMembers: User[] = [];
 
-      if (userRole === 'admin') {
+      if (userRole === 'ADMIN' || userRole === 'admin') {
         // Admin voit tous les utilisateurs
-        const snapshot = await getDocs(query(usersRef));
-        teamMembers = snapshot.docs.map(doc => this.mapUserData(doc));
-      } else if (userRole === 'responsable') {
+        const response = await usersAPI.getUsers();
+        teamMembers = response.data;
+      } else if (userRole === 'RESPONSABLE' || userRole === 'responsable') {
         // Responsable voit tout son département
         if (!userDepartment) throw new Error('Le responsable doit avoir un département assigné');
-        const snapshot = await getDocs(query(usersRef, where('department', '==', userDepartment)));
-        teamMembers = snapshot.docs.map(doc => this.mapUserData(doc));
-      } else if (userRole === 'manager') {
+        const response = await usersAPI.getUsers({ departmentId: userDepartment });
+        teamMembers = response.data;
+      } else if (userRole === 'MANAGER' || userRole === 'manager') {
         // Manager voit :
         // 1. Les utilisateurs dont il est le manager (managerId === userId)
         // 2. Fallback : utilisateurs du même département si pas de managerId défini
 
         // Requête 1 : Utilisateurs avec ce manager
-        const directReportsSnapshot = await getDocs(
-          query(usersRef, where('managerId', '==', userId))
-        );
-        const directReports = directReportsSnapshot.docs.map(doc => this.mapUserData(doc));
+        const directReportsResponse = await usersAPI.getUsers({ managerId: userId });
+        const directReports = directReportsResponse.data;
 
         // Requête 2 : Utilisateurs du département sans manager assigné (fallback)
         if (userDepartment) {
-          const deptSnapshot = await getDocs(
-            query(usersRef, where('department', '==', userDepartment))
+          const deptResponse = await usersAPI.getUsers({ departmentId: userDepartment });
+          const deptMembers = deptResponse.data.filter(u =>
+            u.id !== userId && // Exclure le manager lui-même
+            (!u.managerId || u.managerId === '') // Sans manager assigné
           );
-          const deptMembers = deptSnapshot.docs
-            .map(doc => this.mapUserData(doc))
-            .filter(u =>
-              u.id !== userId && // Exclure le manager lui-même
-              (!u.managerId || u.managerId === '') // Sans manager assigné
-            );
 
           // Combiner et dédupliquer
           const allMembers = [...directReports, ...deptMembers];
@@ -88,128 +78,96 @@ class TeamSupervisionService {
   }
 
   /**
-   * Helper pour mapper les données utilisateur
-   */
-  private mapUserData(doc: any): User {
-    const data = doc.data();
-    return {
-      id: doc.id,
-      ...data,
-      createdAt: data.createdAt?.toDate?.() || new Date(),
-      lastLoginAt: data.lastLoginAt?.toDate?.() || new Date(),
-      updatedAt: data.updatedAt?.toDate?.() || new Date(),
-    } as User;
-  }
-
-  /**
    * Récupère les tâches d'un agent spécifique organisées par projet/jalon
-   * - Uniquement tâches où l'agent est RESPONSIBLE
-   * - Uniquement tâches NON terminées (pas DONE)
+   * - Uniquement tâches où l'agent est ASSIGNÉ (assigneeId)
+   * - Uniquement tâches NON terminées (pas DONE/COMPLETED)
    * - Uniquement tâches de projets ACTIFS
    * - Pas de tâches BACKLOG
    * - Classement par date d'échéance projet (ordre chronologique)
    */
   async getAgentTasksByProject(agentId: string): Promise<ProjectWithMilestones[]> {
     try {
-      // 1. Récupérer toutes les tâches où l'agent est responsible
-      const tasksRef = collection(db, 'tasks');
-      const tasksQuery = query(
-        tasksRef,
-        where('responsible', 'array-contains', agentId)
+      // 1. Récupérer toutes les tâches assignées à l'agent
+      const allTasks = await tasksAPI.getUserTasks(agentId);
+
+      // Filtrer : pas DONE/COMPLETED, pas BACKLOG
+      const tasks = allTasks.filter(
+        t => !['DONE', 'COMPLETED', 'BACKLOG'].includes(t.status)
       );
-      const tasksSnapshot = await getDocs(tasksQuery);
 
-      const tasks: Task[] = tasksSnapshot.docs
-        .map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            ...data,
-            startDate: data.startDate?.toDate?.() || (data.startDate ? new Date(data.startDate) : undefined),
-            dueDate: data.dueDate?.toDate?.() || (data.dueDate ? new Date(data.dueDate) : new Date()),
-            createdAt: data.createdAt?.toDate?.() || new Date(),
-            updatedAt: data.updatedAt?.toDate?.() || new Date(),
-          } as Task;
-        })
-        // Filtrer : pas DONE, pas BACKLOG
-        .filter(t => t.status !== 'DONE' && t.status !== 'BACKLOG');
+      if (tasks.length === 0) {
+        return [];
+      }
 
-      // 2. Récupérer les projets actifs associés (optimisé - batch query)
+      // 2. Récupérer les projets associés (uniquement ACTIVE)
       const projectIds = [...new Set(tasks.map(t => t.projectId))];
       const projectsMap = new Map<string, Project>();
 
-      // Firestore limite 'in' à 10 éléments, on batch si nécessaire
-      const BATCH_SIZE = 10;
-      for (let i = 0; i < projectIds.length; i += BATCH_SIZE) {
-        const batch = projectIds.slice(i, i + BATCH_SIZE);
-        const projectsRef = collection(db, 'projects');
-        const projectQuery = query(projectsRef, where('__name__', 'in', batch));
-        const projectSnapshot = await getDocs(projectQuery);
-
-        projectSnapshot.docs.forEach(doc => {
-          const data = doc.data();
-          const project = {
-            id: doc.id,
-            ...data,
-            startDate: data.startDate?.toDate?.() || new Date(),
-            dueDate: data.dueDate?.toDate?.() || new Date(),
-            actualDueDate: data.actualDueDate?.toDate?.(),
-            createdAt: data.createdAt?.toDate?.() || new Date(),
-            updatedAt: data.updatedAt?.toDate?.() || new Date(),
-          } as Project;
-
-          // Filtrer uniquement projets actifs
-          if (project.status === 'active') {
-            projectsMap.set(doc.id, project);
+      await Promise.all(
+        projectIds.map(async (projectId) => {
+          try {
+            const project = await projectsAPI.getProject(projectId);
+            // Filtrer uniquement projets actifs
+            if (project.status === 'ACTIVE' || project.status === 'active') {
+              projectsMap.set(projectId, project);
+            }
+          } catch (error) {
+            console.warn(`Projet ${projectId} non trouvé ou erreur:`, error);
           }
-        });
-      }
+        })
+      );
 
-      // 3. Récupérer les jalons réels depuis Firestore pour avoir les vrais noms
-      const milestoneIds = [...new Set(tasks.map(t => t.milestoneId).filter(Boolean))];
+      // 3. Filtrer les tâches pour ne garder que celles de projets actifs
+      const activeTasks = tasks.filter(t => projectsMap.has(t.projectId));
+
+      // 4. Récupérer les jalons
+      const milestoneIds = [
+        ...new Set(
+          activeTasks.map(t => (t as any).milestoneId).filter(Boolean)
+        ),
+      ];
       const milestonesDataMap = new Map<string, { name: string; code: string }>();
 
-      for (let i = 0; i < milestoneIds.length; i += BATCH_SIZE) {
-        const batch = milestoneIds.slice(i, i + BATCH_SIZE) as string[];
-        if (batch.length > 0) {
-          const milestonesRef = collection(db, 'milestones');
-          const milestonesQuery = query(milestonesRef, where('__name__', 'in', batch));
-          const milestonesSnapshot = await getDocs(milestonesQuery);
-
-          milestonesSnapshot.docs.forEach(doc => {
-            const data = doc.data();
-            milestonesDataMap.set(doc.id, {
-              name: data.name || data.code || doc.id,
-              code: data.code || ''
+      await Promise.all(
+        milestoneIds.map(async (milestoneId) => {
+          try {
+            const milestone = await milestoneApi.getById(milestoneId);
+            milestonesDataMap.set(milestoneId, {
+              name: milestone.name || milestone.code || milestoneId,
+              code: milestone.code || '',
             });
-          });
-        }
-      }
+          } catch (error) {
+            console.warn(`Jalon ${milestoneId} non trouvé:`, error);
+          }
+        })
+      );
 
-      // 4. Organiser par projet puis par jalon
+      // 5. Organiser par projet puis par jalon
       const projectsWithMilestones: ProjectWithMilestones[] = [];
 
       for (const [projectId, project] of projectsMap.entries()) {
-        const projectTasks = tasks.filter(t => t.projectId === projectId);
+        const projectTasks = activeTasks.filter(t => t.projectId === projectId);
 
         // Grouper par jalon
         const milestonesMap = new Map<string, Task[]>();
 
         projectTasks.forEach(task => {
-          const milestoneKey = task.milestoneId || 'no-milestone';
+          const milestoneKey = (task as any).milestoneId || 'no-milestone';
           if (!milestonesMap.has(milestoneKey)) {
             milestonesMap.set(milestoneKey, []);
           }
           milestonesMap.get(milestoneKey)!.push(task);
         });
 
-        // Créer les groupes de jalons avec les vrais noms
-        const milestones: MilestoneWithTasks[] = Array.from(milestonesMap.entries()).map(([key, tasks]) => {
+        // Créer les groupes de jalons
+        const milestones: MilestoneWithTasks[] = Array.from(
+          milestonesMap.entries()
+        ).map(([key, tasks]) => {
           if (key === 'no-milestone') {
             return {
               milestoneId: undefined,
               milestoneName: 'Sans jalon',
-              tasks
+              tasks,
             };
           }
 
@@ -217,20 +175,22 @@ class TeamSupervisionService {
           return {
             milestoneId: key,
             milestoneName: milestoneData?.name || key,
-            tasks
+            tasks,
           };
         });
 
         projectsWithMilestones.push({
           project,
-          milestones
+          milestones,
         });
       }
 
-      // 5. Trier par date d'échéance projet (ordre chronologique)
-      projectsWithMilestones.sort((a, b) =>
-        a.project.dueDate.getTime() - b.project.dueDate.getTime()
-      );
+      // 6. Trier par date d'échéance projet (ordre chronologique)
+      projectsWithMilestones.sort((a, b) => {
+        const dateA = new Date(a.project.dueDate).getTime();
+        const dateB = new Date(b.project.dueDate).getTime();
+        return dateA - dateB;
+      });
 
       return projectsWithMilestones;
     } catch (error) {

@@ -25,6 +25,7 @@ import { FilterNotificationDto } from './dto/filter-notification.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { GetDepartmentFilter } from '../auth/decorators/department-filter.decorator';
 import { Role } from '@prisma/client';
 
 /**
@@ -71,7 +72,8 @@ export class NotificationsController {
 
   /**
    * Récupérer toutes les notifications avec filtrage et pagination
-   * Accessible à tous les utilisateurs authentifiés
+   * 🔒 Isolation par département : Les utilisateurs non-ADMIN/RESPONSABLE
+   * ne voient que les notifications de leur département
    */
   @Get()
   @ApiOperation({
@@ -83,7 +85,14 @@ export class NotificationsController {
     status: 200,
     description: 'Liste des notifications récupérée avec succès',
   })
-  findAll(@Query() filterDto: FilterNotificationDto) {
+  findAll(
+    @Query() filterDto: FilterNotificationDto,
+    @GetDepartmentFilter() departmentFilter: string | null,
+  ) {
+    // 🔒 Si l'utilisateur n'est pas ADMIN/RESPONSABLE, on force le filtre département
+    if (departmentFilter && !filterDto.departmentId) {
+      filterDto.departmentId = departmentFilter;
+    }
     return this.notificationsService.findAll(filterDto);
   }
 

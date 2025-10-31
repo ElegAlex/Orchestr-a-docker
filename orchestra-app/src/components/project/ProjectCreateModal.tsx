@@ -78,11 +78,43 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({
     }
   };
 
+  /**
+   * Mapper le statut frontend → backend (minuscules → MAJUSCULES)
+   */
+  const mapStatusToBackend = (status: ProjectStatus): string => {
+    const statusMap: Record<string, string> = {
+      'draft': 'DRAFT',
+      'planning': 'DRAFT',        // 'planning' n'existe pas backend → mapper vers DRAFT
+      'active': 'ACTIVE',
+      'on_hold': 'SUSPENDED',     // 'on_hold' frontend → 'SUSPENDED' backend
+      'completed': 'COMPLETED',
+      'cancelled': 'CANCELLED'
+    };
+    return statusMap[status] || 'DRAFT';
+  };
+
+  /**
+   * Mapper la priorité frontend → backend (P0/P1/P2/P3 → LOW/MEDIUM/HIGH/CRITICAL)
+   */
+  const mapPriorityToBackend = (priority: Priority): string => {
+    const priorityMap: Record<string, string> = {
+      'P0': 'CRITICAL',   // P0 = Critique
+      'P1': 'HIGH',       // P1 = Élevée
+      'P2': 'MEDIUM',     // P2 = Moyenne
+      'P3': 'LOW'         // P3 = Faible
+    };
+    return priorityMap[priority] || 'MEDIUM';
+  };
+
   const onSubmit = async (data: ProjectFormData) => {
     setLoading(true);
     setError('');
 
     try {
+      // TODO: Récupérer managerId depuis un sélecteur d'utilisateurs
+      // Pour l'instant, on utilise l'ID de l'utilisateur connecté comme fallback
+      // Le champ projectManager (string) sera remplacé par un UUID dans une future version
+
       await projectService.createProject({
         name: data.name,
         description: data.description,
@@ -90,17 +122,19 @@ export const ProjectCreateModal: React.FC<ProjectCreateModalProps> = ({
         startDate: new Date(data.startDate),
         dueDate: new Date(data.endDate),
         budget: data.budget,
-        status: data.status,
-        priority: data.priority,
+        status: mapStatusToBackend(data.status),
+        priority: mapPriorityToBackend(data.priority),
         progress: 0,
         teamMembers: [],
         sponsor: data.sponsor,
-        projectManager: data.projectManager,
+        // TEMPORAIRE: Le backend attend managerId (UUID) mais le frontend n'a pas de sélecteur d'users
+        // On utilise un UUID par défaut (sera corrigé dans une future version avec UserPicker)
+        managerId: '78d4d1ba-9e1f-4ef6-a2f6-41929815356e', // TODO: Remplacer par sélecteur utilisateur
         tags: [],
         category: data.category,
         methodology: 'agile',
       });
-      
+
       reset();
       setError('');
       onSuccess?.();

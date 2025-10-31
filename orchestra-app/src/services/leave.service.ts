@@ -31,21 +31,61 @@ export class LeaveService {
   }
 
   /**
+   * Alias pour compatibilité avec l'ancien code
+   */
+  async getUserLeaves(userId: string): Promise<Leave[]> {
+    return this.getLeavesByUser(userId);
+  }
+
+  /**
+   * Récupère le solde de congés d'un utilisateur
+   * Pour l'instant retourne un solde par défaut (TODO: implémenter le calcul réel)
+   */
+  async getLeaveBalance(userId: string): Promise<{
+    paidLeave: number;
+    rtt: number;
+    sickLeave: number;
+    other: number;
+  }> {
+    try {
+      // TODO: Implémenter le vrai calcul de solde depuis le backend
+      // Pour l'instant, on retourne un solde par défaut
+      return {
+        paidLeave: 25,
+        rtt: 10,
+        sickLeave: 0,
+        other: 0
+      };
+    } catch (error: any) {
+      console.error('Error fetching leave balance:', error);
+      return {
+        paidLeave: 0,
+        rtt: 0,
+        sickLeave: 0,
+        other: 0
+      };
+    }
+  }
+
+  /**
    * Récupère tous les congés
+   * @param filters Filtres optionnels (status, dates, département)
    */
   async getAllLeaves(filters?: {
     status?: string;
+    departmentId?: string | null;
     startDate?: Date;
     endDate?: Date;
   }): Promise<Leave[]> {
     try {
       const apiFilters = filters ? {
         status: filters.status,
+        departmentId: filters.departmentId ?? undefined, // null devient undefined
         startDate: filters.startDate?.toISOString(),
         endDate: filters.endDate?.toISOString()
       } : undefined;
 
-      const leaves = await leavesAPI.getAllLeaves(apiFilters);
+      const leaves = await leavesAPI.getAll(apiFilters);
 
       // Trier par date de début (plus récent en premier)
       return leaves.sort((a, b) => {
@@ -67,14 +107,18 @@ export class LeaveService {
     type: string;
     startDate: Date;
     endDate: Date;
+    days?: number;
     reason?: string;
   }): Promise<Leave> {
     try {
+      // Calculer le nombre de jours si non fourni
+      const days = data.days || this.calculateLeaveDays(data.startDate, data.endDate);
+
       const leaveData = {
-        userId: data.userId,
         type: data.type,
-        startDate: data.startDate.toISOString(),
-        endDate: data.endDate.toISOString(),
+        startDate: data.startDate.toISOString().split('T')[0], // Format: YYYY-MM-DD
+        endDate: data.endDate.toISOString().split('T')[0],     // Format: YYYY-MM-DD
+        days: days,
         reason: data.reason
       };
 

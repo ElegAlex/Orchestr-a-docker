@@ -25,6 +25,8 @@ import { FilterTaskDto } from './dto/filter-task.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { GetDepartmentFilter } from '../auth/decorators/department-filter.decorator';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Role } from '@prisma/client';
 import { CommentsService } from '../comments/comments.service';
 import { FilterCommentDto } from '../comments/dto/filter-comment.dto';
@@ -78,7 +80,8 @@ export class TasksController {
 
   /**
    * Récupérer toutes les tâches avec filtrage et pagination
-   * Accessible à tous les utilisateurs authentifiés
+   * 🔒 Isolation par département : Les utilisateurs non-ADMIN/RESPONSABLE
+   * ne voient que les tâches assignées à leur département
    */
   @Get()
   @ApiOperation({
@@ -90,7 +93,14 @@ export class TasksController {
     status: 200,
     description: 'Liste des tâches récupérée avec succès',
   })
-  findAll(@Query() filterDto: FilterTaskDto) {
+  findAll(
+    @Query() filterDto: FilterTaskDto,
+    @GetDepartmentFilter() departmentFilter: string | null,
+  ) {
+    // 🔒 Si l'utilisateur n'est pas ADMIN/RESPONSABLE, on force le filtre département
+    if (departmentFilter && !filterDto.departmentId) {
+      filterDto.departmentId = departmentFilter;
+    }
     return this.tasksService.findAll(filterDto);
   }
 
@@ -178,13 +188,12 @@ export class TasksController {
 
   /**
    * Mettre à jour une tâche
-   * Rôles autorisés : ADMIN, RESPONSABLE, MANAGER, TEAM_LEAD
+   * BUG-06 FIX: Accessible aux membres de l'équipe projet, assignés, ou gestionnaires
    */
   @Put(':id')
-  @Roles(Role.ADMIN, Role.RESPONSABLE, Role.MANAGER, Role.TEAM_LEAD)
   @ApiOperation({
     summary: 'Mettre à jour une tâche',
-    description: 'Met à jour les informations d\'une tâche. Réservé aux gestionnaires.',
+    description: 'Met à jour les informations d\'une tâche. Accessible aux membres de l\'équipe projet, à l\'assigné, ou aux gestionnaires.',
   })
   @ApiParam({
     name: 'id',
@@ -201,14 +210,18 @@ export class TasksController {
   })
   @ApiResponse({
     status: 403,
-    description: 'Accès refusé : rôle insuffisant',
+    description: 'Accès refusé : vous devez être membre de l\'équipe projet',
   })
   @ApiResponse({
     status: 404,
     description: 'Tâche non trouvée',
   })
-  update(@Param('id') id: string, @Body() updateTaskDto: UpdateTaskDto) {
-    return this.tasksService.update(id, updateTaskDto);
+  update(
+    @Param('id') id: string,
+    @Body() updateTaskDto: UpdateTaskDto,
+    @CurrentUser('id') currentUserId: string,
+  ) {
+    return this.tasksService.update(id, updateTaskDto, currentUserId);
   }
 
   /**

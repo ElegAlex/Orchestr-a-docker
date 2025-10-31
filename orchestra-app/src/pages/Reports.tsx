@@ -66,8 +66,7 @@ import { userService } from '../services/user.service';
 import { milestoneService } from '../services/milestone.service';
 import { format, subDays, startOfWeek, eachDayOfInterval } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { normalizeProjectsFromBackend } from '../utils/status.utils';
 
 // Lazy load des composants
 const PortfolioGantt = lazy(() => import('../components/reports/PortfolioGantt'));
@@ -102,75 +101,24 @@ const Reports: React.FC = () => {
   const loadReportData = async () => {
     try {
       setLoading(true);
-      const [projects, tasks, users] = await Promise.all([
+      const [projectsData, tasks, users] = await Promise.all([
         projectService.getAllProjects(),
         taskService.getTasks(),
         userService.getAllUsers()
       ]);
 
-      // Recalculer le progress de chaque projet à la volée en excluant les sous-tâches
-      const projectsWithRecalculatedProgress = await Promise.all(
-        projects.map(async (project) => {
-          try {
-            const tasksQuery = query(
-              collection(db, 'tasks'),
-              where('projectId', '==', project.id)
-            );
-            const tasksSnapshot = await getDocs(tasksQuery);
+      // Normaliser les statuts backend (ACTIVE) → frontend (active)
+      const projects = normalizeProjectsFromBackend(projectsData);
 
-            if (tasksSnapshot.empty) {
-              return { ...project, progress: 0 };
-            }
-
-            let totalTasks = 0;
-            let completedTasks = 0;
-            let totalStoryPoints = 0;
-            let completedStoryPoints = 0;
-
-            tasksSnapshot.docs.forEach(doc => {
-              const task = doc.data() as Task;
-
-              // Exclure les sous-tâches
-              if (task.parentTaskId) {
-                return;
-              }
-
-              totalTasks++;
-              const storyPoints = task.storyPoints || 1;
-              totalStoryPoints += storyPoints;
-
-              if (task.status === 'DONE') {
-                completedTasks++;
-                completedStoryPoints += storyPoints;
-              }
-            });
-
-            // Calculer le progrès
-            let calculatedProgress = 0;
-            if (totalStoryPoints > 0) {
-              calculatedProgress = Math.round((completedStoryPoints / totalStoryPoints) * 100);
-            } else if (totalTasks > 0) {
-              calculatedProgress = Math.round((completedTasks / totalTasks) * 100);
-            }
-
-            return { ...project, progress: calculatedProgress };
-          } catch (error) {
-            console.error(`Error calculating progress for project ${project.id}:`, error);
-            return project;
-          }
-        })
-      );
+      // Le backend retourne déjà le progress calculé (COMPLETED / total tasks)
+      // Pas besoin de recalculer avec Firebase
 
       // Charger les jalons pour tous les projets
-      const milestonePromises = projectsWithRecalculatedProgress.map(p => milestoneService.getProjectMilestones(p.id));
+      const milestonePromises = projects.map(p => milestoneService.getProjectMilestones(p.id));
       const milestonesArrays = await Promise.all(milestonePromises);
       const allMilestones = milestonesArrays.flat();
 
-      console.log('Projects loaded:', projectsWithRecalculatedProgress.length);
-      console.log('Milestones loaded:', allMilestones.length);
-      console.log('Milestones details:', allMilestones);
-
-      setData({ projects: projectsWithRecalculatedProgress, tasks, users, milestones: allMilestones });
+      setData({ projects, tasks, users, milestones: allMilestones });
     } catch (error) {
       console.error('Erreur lors du chargement des données:', error);
     } finally {
@@ -212,10 +160,11 @@ const Reports: React.FC = () => {
 
   const getMetrics = (): MetricCard[] => {
     const filtered = getFilteredData();
-    
-    const totalProjects = filtered.projects.length;
-    const activeProjects = filtered.projects.filter(p => p.status === 'active').length;
-    const completedProjects = filtered.projects.filter(p => p.status === 'completed').length;
+
+    // Pour les projets actifs, compter TOUS les projets actifs (pas seulement ceux de la période)
+    const allActiveProjects = data.projects.filter(p => p.status === 'active').length;
+    const totalProjects = data.projects.length;
+    const completedProjects = data.projects.filter(p => p.status === 'completed').length;
 
     // Exclure les sous-tâches du calcul (seules les tâches parentes comptent)
     const parentTasks = filtered.tasks.filter(t => !t.parentTaskId);
@@ -230,9 +179,9 @@ const Reports: React.FC = () => {
     return [
       {
         title: 'Projets Actifs',
-        value: activeProjects,
+        value: allActiveProjects,
         change: totalProjects > 0 ? `${totalProjects} total` : '',
-        trend: activeProjects > completedProjects ? 'up' : 'stable',
+        trend: allActiveProjects > completedProjects ? 'up' : 'stable',
         color: 'primary',
         icon: <AssessmentIcon />
       },
@@ -590,20 +539,21 @@ const Reports: React.FC = () => {
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography
-                          variant="body2"
-                          color={isOverdue ? 'error' : 'text.primary'}
-                        >
-                          {project.dueDate ? format(new Date(project.dueDate), 'dd/MM/yyyy', { locale: fr }) : 'Non définie'}
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography
+                            variant="body2"
+                            color={isOverdue ? 'error' : 'text.primary'}
+                          >
+                            {project.dueDate ? format(new Date(project.dueDate), 'dd/MM/yyyy', { locale: fr }) : 'Non définie'}
+                          </Typography>
                           {isOverdue && (
                             <Chip
                               size="small"
                               label="Retard"
                               color="error"
-                              sx={{ ml: 1 }}
                             />
                           )}
-                        </Typography>
+                        </Box>
                       </TableCell>
                     </TableRow>
                   );

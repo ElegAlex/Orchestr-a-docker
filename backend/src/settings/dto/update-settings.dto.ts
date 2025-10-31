@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, IsString, Min, IsIn } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Min, IsIn, IsArray, ArrayMinSize, ArrayMaxSize } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class UpdateSettingsDto {
@@ -113,4 +113,13 @@ export class UpdateSettingsDto {
   @IsOptional()
   @IsString()
   maintenanceMessage?: string;
+
+  // Calendar Configuration
+  @ApiProperty({ description: 'Jours de la semaine visibles (0=Dimanche, 1=Lundi, ..., 6=Samedi)', required: false, type: [Number] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(7)
+  @IsInt({ each: true })
+  visibleWeekDays?: number[];
 }

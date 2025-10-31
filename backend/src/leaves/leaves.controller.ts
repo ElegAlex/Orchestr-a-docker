@@ -27,6 +27,7 @@ import { RejectLeaveDto } from './dto/reject-leave.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { GetDepartmentFilter } from '../auth/decorators/department-filter.decorator';
 import { Role } from '@prisma/client';
 
 /**
@@ -65,7 +66,8 @@ export class LeavesController {
 
   /**
    * Récupérer toutes les demandes de congé avec filtrage et pagination
-   * Accessible à tous les utilisateurs authentifiés
+   * 🔒 Isolation par département : Les utilisateurs non-ADMIN/RESPONSABLE
+   * ne voient que les congés de leur département
    */
   @Get()
   @ApiOperation({
@@ -77,7 +79,14 @@ export class LeavesController {
     status: 200,
     description: 'Liste des demandes récupérée avec succès',
   })
-  findAll(@Query() filterDto: FilterLeaveDto) {
+  findAll(
+    @Query() filterDto: FilterLeaveDto,
+    @GetDepartmentFilter() departmentFilter: string | null,
+  ) {
+    // 🔒 Si l'utilisateur n'est pas ADMIN/RESPONSABLE, on force le filtre département
+    if (departmentFilter && !filterDto.departmentId) {
+      filterDto.departmentId = departmentFilter;
+    }
     return this.leavesService.findAll(filterDto);
   }
 
@@ -136,13 +145,14 @@ export class LeavesController {
 
   /**
    * Mettre à jour une demande de congé
-   * L'utilisateur peut modifier ses propres demandes PENDING, ADMIN peut tout modifier
+   * BUG-02 FIX: L'utilisateur peut modifier ses propres demandes PENDING
+   * ADMIN et RESPONSABLE peuvent modifier toutes les demandes PENDING
    */
   @Patch(':id')
   @ApiOperation({
     summary: 'Mettre à jour une demande de congé',
     description:
-      'Met à jour une demande de congé. Uniquement pour les demandes PENDING.',
+      'Met à jour une demande de congé. Uniquement pour les demandes PENDING. L\'utilisateur peut modifier ses propres demandes, ADMIN/RESPONSABLE peuvent tout modifier.',
   })
   @ApiParam({
     name: 'id',

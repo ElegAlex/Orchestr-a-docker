@@ -24,13 +24,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const token = apiClient.getAccessToken();
 
       if (token) {
-        try {
-          // Récupérer le profil utilisateur
-          await dispatch(fetchUserProfile()).unwrap();
-        } catch (error) {
-          // Token invalide ou expiré, on ne fait rien
-          // L'utilisateur sera redirigé vers /login par PrivateRoute
-          console.log('Token invalide ou expiré');
+        // Vérifier si le token est expiré avant de faire l'appel API
+        if (apiClient.isTokenExpired(token)) {
+          // Token expiré, nettoyer directement sans appel API
+          apiClient.clearTokens();
+        } else {
+          try {
+            // Récupérer le profil utilisateur
+            await dispatch(fetchUserProfile()).unwrap();
+          } catch (error) {
+            // Token invalide ou autre erreur, nettoyer le localStorage
+            // L'utilisateur sera redirigé vers /login par PrivateRoute
+            apiClient.clearTokens();
+          }
         }
       }
 

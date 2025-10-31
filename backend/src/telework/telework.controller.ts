@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { TeleworkService } from './telework.service';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import {
   CreateUserTeleworkProfileDto,
   UpdateUserTeleworkProfileDto,
@@ -24,6 +25,7 @@ import {
   GetOverridesQueryDto,
 } from './telework.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { GetDepartmentFilter } from '../auth/decorators/department-filter.decorator';
 
 @ApiTags('telework')
 @Controller('telework')
@@ -50,12 +52,14 @@ export class TeleworkController {
 
   /**
    * GET /api/telework/profiles - Récupérer tous les profils
+   * 🔒 Isolation par département : Les utilisateurs non-ADMIN/RESPONSABLE
+   * ne voient que les profils de leur département
    */
   @Get('profiles')
   @ApiOperation({ summary: 'Récupérer tous les profils télétravail (admin)' })
   @ApiResponse({ status: 200, description: 'Liste des profils récupérée' })
-  getAllProfiles() {
-    return this.teleworkService.getAllProfiles();
+  getAllProfiles(@GetDepartmentFilter() departmentFilter: string | null) {
+    return this.teleworkService.getAllProfiles(departmentFilter);
   }
 
   /**
@@ -108,13 +112,27 @@ export class TeleworkController {
 
   /**
    * POST /api/telework/overrides - Créer une demande d'exception
+   * BUG-05 FIX: Utilisateurs ne peuvent créer que leurs propres exceptions
    */
   @Post('overrides')
-  @ApiOperation({ summary: 'Créer une demande d\'exception télétravail' })
+  @ApiOperation({ summary: 'Créer une demande d\'exception télétravail (pour soi-même ou ADMIN/RESPONSABLE pour tous)' })
   @ApiResponse({ status: 201, description: 'Exception créée avec succès' })
   @ApiResponse({ status: 400, description: 'Données invalides ou exception existante' })
-  requestOverride(@Body() dto: CreateTeleworkOverrideDto) {
-    return this.teleworkService.requestOverride(dto);
+  @ApiResponse({ status: 403, description: 'Vous ne pouvez créer que vos propres exceptions' })
+  async requestOverride(
+    @Body() dto: CreateTeleworkOverrideDto,
+    @CurrentUser('id') currentUserId: string,
+    @CurrentUser('role') currentUserRole: string,
+  ) {
+    console.log('🔍 [Backend] Received override request:', JSON.stringify(dto, null, 2));
+    try {
+      const result = await this.teleworkService.requestOverride(dto, currentUserId, currentUserRole);
+      console.log('✅ [Backend] Override created successfully:', result.id);
+      return result;
+    } catch (error) {
+      console.error('❌ [Backend] Error creating override:', error.message);
+      throw error;
+    }
   }
 
   /**
@@ -185,14 +203,20 @@ export class TeleworkController {
 
   /**
    * DELETE /api/telework/overrides/:id - Supprimer une exception
+   * BUG-05 FIX: Utilisateurs ne peuvent supprimer que leurs propres exceptions
    */
   @Delete('overrides/:id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Supprimer une exception télétravail' })
+  @ApiOperation({ summary: 'Supprimer une exception télétravail (seulement la sienne ou ADMIN/RESPONSABLE pour toutes)' })
   @ApiResponse({ status: 200, description: 'Exception supprimée avec succès' })
+  @ApiResponse({ status: 403, description: 'Vous ne pouvez supprimer que vos propres exceptions' })
   @ApiResponse({ status: 404, description: 'Exception non trouvée' })
-  deleteOverride(@Param('id') id: string) {
-    return this.teleworkService.deleteOverride(id);
+  deleteOverride(
+    @Param('id') id: string,
+    @CurrentUser('id') currentUserId: string,
+    @CurrentUser('role') currentUserRole: string,
+  ) {
+    return this.teleworkService.deleteOverride(id, currentUserId, currentUserRole);
   }
 
   /**

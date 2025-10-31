@@ -42,6 +42,15 @@ export class FilterProjectDto {
   managerId?: string;
 
   @ApiProperty({
+    example: 'general-dept-default-001',
+    description: 'Filtrer par département (projets avec au moins 1 membre du département)',
+    required: false,
+  })
+  @IsString()
+  @IsOptional()
+  departmentId?: string;
+
+  @ApiProperty({
     example: '2025-11-01',
     description: 'Filtrer par date de début (après cette date)',
     required: false,

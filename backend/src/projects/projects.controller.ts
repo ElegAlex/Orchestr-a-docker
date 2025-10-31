@@ -26,6 +26,7 @@ import { AddMemberDto } from './dto/add-member.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { GetDepartmentFilter } from '../auth/decorators/department-filter.decorator';
 
 /**
  * Contrôleur de gestion des projets
@@ -45,10 +46,22 @@ export class ProjectsController {
     return this.projectsService.create(createProjectDto);
   }
 
+  /**
+   * Récupérer tous les projets avec filtres et pagination
+   * 🔒 Isolation par département : Les utilisateurs non-ADMIN/RESPONSABLE
+   * ne voient que les projets avec au moins 1 membre de leur département
+   */
   @Get()
   @ApiOperation({ summary: 'Liste des projets avec filtres et pagination' })
   @ApiResponse({ status: 200, description: 'Liste des projets' })
-  findAll(@Query() filterDto: FilterProjectDto) {
+  findAll(
+    @Query() filterDto: FilterProjectDto,
+    @GetDepartmentFilter() departmentFilter: string | null,
+  ) {
+    // 🔒 Si l'utilisateur n'est pas ADMIN/RESPONSABLE, on force le filtre département
+    if (departmentFilter && !filterDto.departmentId) {
+      filterDto.departmentId = departmentFilter;
+    }
     return this.projectsService.findAll(filterDto);
   }
 

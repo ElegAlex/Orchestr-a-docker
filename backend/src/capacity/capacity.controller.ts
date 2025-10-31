@@ -62,6 +62,10 @@ export class CapacityController {
     @Param('userId') userId: string,
     @Body() dto: CreateContractDto
   ) {
+    console.log('🔍 [Backend] DTO reçu:', JSON.stringify(dto, null, 2));
+    console.log('🔍 [Backend] Type de startDate:', typeof dto.startDate, dto.startDate);
+    console.log('🔍 [Backend] Type de endDate:', typeof dto.endDate, dto.endDate);
+    console.log('🔍 [Backend] workingDays:', dto.workingDays);
     return this.capacityService.createContract(userId, dto);
   }
 

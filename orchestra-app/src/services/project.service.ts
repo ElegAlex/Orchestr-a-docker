@@ -102,11 +102,13 @@ export class ProjectService {
 
   /**
    * Récupérer tous les projets
+   * @param departmentId Filtre optionnel par département (null = tous les départements, string = département spécifique)
    */
-  async getAllProjects(): Promise<Project[]> {
+  async getAllProjects(departmentId?: string | null): Promise<Project[]> {
     try {
       const response = await projectsAPI.getProjects({
-        limit: 1000,
+        limit: 100,
+        departmentId: departmentId ?? undefined, // null devient undefined pour ne pas envoyer le paramètre
       });
 
       return response.data;

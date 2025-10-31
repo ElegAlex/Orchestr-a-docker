@@ -20,7 +20,10 @@ import {
   ListItemText,
   ListItemIcon,
   Box,
+  Tooltip,
+  IconButton,
 } from '@mui/material';
+import { HelpOutline as HelpIcon } from '@mui/icons-material';
 import { DateTimePicker } from '@mui/x-date-pickers';
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -129,7 +132,20 @@ export const SimpleTaskModal: React.FC<SimpleTaskModalProps> = ({
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={fr}>
       <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-        <DialogTitle>Nouvelle tâche simple</DialogTitle>
+        <DialogTitle>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <span>Nouvelle tâche personnelle</span>
+            <Tooltip
+              title="Une tâche personnelle est une tâche individuelle qui n'est pas liée à un projet. Elle apparaît dans votre agenda et votre hub personnel."
+              arrow
+              placement="right"
+            >
+              <IconButton size="small" sx={{ ml: 1 }}>
+                <HelpIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        </DialogTitle>
 
         <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>

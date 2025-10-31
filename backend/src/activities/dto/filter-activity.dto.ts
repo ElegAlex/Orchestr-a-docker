@@ -16,6 +16,15 @@ export class FilterActivityDto {
   userId?: string;
 
   @ApiProperty({
+    description: 'Filtrer par département (via l\'utilisateur)',
+    example: 'general-dept-default-001',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  departmentId?: string;
+
+  @ApiProperty({
     description: 'Action effectuée',
     example: 'CREATE_TASK',
     required: false,

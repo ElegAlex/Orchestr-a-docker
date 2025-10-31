@@ -61,70 +61,63 @@ export const userServiceAssignmentsApi = {
    * Récupère toutes les assignations
    */
   getAll: async (): Promise<UserServiceAssignment[]> => {
-    const { data } = await api.get<UserServiceAssignment[]>('/user-service-assignments');
-    return data;
+    // Ajouter timestamp pour casser le cache HTTP 304
+    return await api.get<UserServiceAssignment[]>(`/user-service-assignments?t=${Date.now()}`);
   },
 
   /**
    * Récupère une assignation par ID
    */
   getById: async (id: string): Promise<UserServiceAssignment> => {
-    const { data } = await api.get<UserServiceAssignment>(`/user-service-assignments/${id}`);
-    return data;
+    return await api.get<UserServiceAssignment>(`/user-service-assignments/${id}`);
   },
 
   /**
    * Récupère les assignations d'un utilisateur
    */
   getByUser: async (userId: string): Promise<UserServiceAssignment[]> => {
-    const { data } = await api.get<UserServiceAssignment[]>(
+    return await api.get<UserServiceAssignment[]>(
       `/user-service-assignments/user/${userId}`,
     );
-    return data;
   },
 
   /**
    * Récupère les assignations d'un service
    */
   getByService: async (serviceId: string): Promise<UserServiceAssignment[]> => {
-    const { data } = await api.get<UserServiceAssignment[]>(
+    return await api.get<UserServiceAssignment[]>(
       `/user-service-assignments/service/${serviceId}`,
     );
-    return data;
   },
 
   /**
    * Crée une nouvelle assignation
    */
   create: async (dto: CreateAssignmentDto): Promise<UserServiceAssignment> => {
-    const { data } = await api.post<UserServiceAssignment>('/user-service-assignments', dto);
-    return data;
+    return await api.post<UserServiceAssignment>('/user-service-assignments', dto);
   },
 
   /**
    * Met à jour une assignation
    */
   update: async (id: string, dto: UpdateAssignmentDto): Promise<UserServiceAssignment> => {
-    const { data } = await api.patch<UserServiceAssignment>(
+    return await api.patch<UserServiceAssignment>(
       `/user-service-assignments/${id}`,
       dto,
     );
-    return data;
   },
 
   /**
    * Supprime une assignation (soft delete)
    */
   delete: async (id: string): Promise<UserServiceAssignment> => {
-    const { data } = await api.delete<UserServiceAssignment>(`/user-service-assignments/${id}`);
-    return data;
+    return await api.delete<UserServiceAssignment>(`/user-service-assignments/${id}`);
   },
 
   /**
    * Récupère les statistiques des assignations
    */
   getStats: async (): Promise<AssignmentStats> => {
-    const { data } = await api.get<AssignmentStats>('/user-service-assignments/stats');
-    return data;
+    return await api.get<AssignmentStats>('/user-service-assignments/stats');
   },
 };

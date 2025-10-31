@@ -63,11 +63,11 @@ export class CreateUserDto {
   role?: string;
 
   @ApiProperty({
-    example: '550e8400-e29b-41d4-a716-446655440000',
+    example: 'general-dept-default-001',
     description: 'ID du département',
     required: false,
   })
-  @IsUUID('4', { message: 'ID de département invalide' })
+  @IsString({ message: 'ID de département invalide' })
   @IsOptional()
   departmentId?: string;
 }

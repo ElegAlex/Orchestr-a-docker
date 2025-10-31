@@ -14,6 +14,9 @@ import { HolidaysService } from './holidays.service';
 import { CreateHolidayDto } from './dto/create-holiday.dto';
 import { UpdateHolidayDto } from './dto/update-holiday.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { Role } from '@prisma/client';
 
 @ApiTags('holidays')
 @ApiBearerAuth()
@@ -23,9 +26,12 @@ export class HolidaysController {
   constructor(private readonly holidaysService: HolidaysService) {}
 
   @Post()
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.RESPONSABLE)
   @ApiOperation({ summary: 'Créer un nouveau jour férié' })
   @ApiResponse({ status: 201, description: 'Jour férié créé avec succès' })
   @ApiResponse({ status: 401, description: 'Non autorisé' })
+  @ApiResponse({ status: 403, description: 'Permissions insuffisantes (ADMIN/RESPONSABLE requis)' })
   create(@Body() createDto: CreateHolidayDto) {
     return this.holidaysService.create(createDto);
   }
@@ -157,17 +163,23 @@ export class HolidaysController {
   }
 
   @Patch(':id')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.RESPONSABLE)
   @ApiOperation({ summary: 'Mettre à jour un jour férié' })
   @ApiResponse({ status: 200, description: 'Jour férié mis à jour' })
   @ApiResponse({ status: 404, description: 'Jour férié non trouvé' })
+  @ApiResponse({ status: 403, description: 'Permissions insuffisantes (ADMIN/RESPONSABLE requis)' })
   update(@Param('id') id: string, @Body() updateDto: UpdateHolidayDto) {
     return this.holidaysService.update(id, updateDto);
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Supprimer un jour férié' })
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.RESPONSABLE)
+  @ApiOperation({ summary: 'Supprimer un jour férié (BUG-01 FIX: Permissions ajoutées)' })
   @ApiResponse({ status: 200, description: 'Jour férié supprimé' })
   @ApiResponse({ status: 404, description: 'Jour férié non trouvé' })
+  @ApiResponse({ status: 403, description: 'Permissions insuffisantes (ADMIN/RESPONSABLE requis)' })
   remove(@Param('id') id: string) {
     return this.holidaysService.remove(id);
   }

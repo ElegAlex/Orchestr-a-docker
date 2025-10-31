@@ -135,8 +135,10 @@ class PermissionsService {
   /**
    * Obtenir les permissions pour un rôle donné
    */
-  getPermissionsForRole(role: Role): Permission[] {
-    return rolePermissions[role] || [];
+  getPermissionsForRole(role: Role | string): Permission[] {
+    // Normaliser en minuscules pour gérer les rôles en majuscules de la BDD (ADMIN, RESPONSABLE, etc.)
+    const normalizedRole = (role as string).toLowerCase() as Role;
+    return rolePermissions[normalizedRole] || [];
   }
 
   /**

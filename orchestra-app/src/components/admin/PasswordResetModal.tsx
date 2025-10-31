@@ -23,7 +23,7 @@ import {
   Refresh as GenerateIcon,
 } from '@mui/icons-material';
 import { User } from '../../types';
-import { authService } from '../../services/auth.service';
+import { usersAPI } from '../../services/api/users.api';
 
 interface PasswordResetModalProps {
   open: boolean;
@@ -38,7 +38,7 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
   user,
   onSuccess
 }) => {
-  const [resetMethod, setResetMethod] = useState<'email' | 'manual'>('email');
+  const [resetMethod, setResetMethod] = useState<'email' | 'manual'>('manual');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -82,14 +82,13 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
 
     try {
       if (resetMethod === 'email') {
-        // Envoi d'email de réinitialisation
-        await authService.resetPassword(user.email);
-        onSuccess?.('Email de réinitialisation envoyé avec succès !');
-        onClose();
+        // Envoi d'email de réinitialisation (fonctionnalité future)
+        setError('L\'envoi d\'email de réinitialisation n\'est pas encore implémenté. Utilisez "Nouveau mot de passe".');
+        return;
       } else {
-        // Changement manuel du mot de passe
-        if (!newPassword || newPassword.length < 6) {
-          setError('Le mot de passe doit contenir au moins 6 caractères');
+        // Validations basiques côté client
+        if (!newPassword || newPassword.length < 8) {
+          setError('Le mot de passe doit contenir au moins 8 caractères');
           return;
         }
 
@@ -98,27 +97,27 @@ export const PasswordResetModal: React.FC<PasswordResetModalProps> = ({
           return;
         }
 
-        // TODO: Implémenter la fonction de changement de mot de passe via Cloud Function
-        // Pour l'instant, on utilise l'email de reset
-        await authService.resetPassword(user.email);
+        // Appel API REST pour réinitialiser le password (Admin uniquement)
+        const result = await usersAPI.adminResetPassword(user.id, newPassword);
 
-        let message = 'Email de réinitialisation envoyé.';
-        if (sendEmail && newPassword) {
-          message += ` Le nouveau mot de passe temporaire est : ${newPassword}`;
+        let message = `Mot de passe réinitialisé avec succès pour ${result.email}`;
+        if (sendEmail) {
+          message += `\n\nNouveau mot de passe : ${newPassword}\n⚠️ Communiquez-le de manière sécurisée à l'utilisateur.`;
         }
 
         onSuccess?.(message);
         onClose();
       }
     } catch (error: any) {
-      setError(error.message || 'Erreur lors de la réinitialisation');
+      console.error('Erreur lors de la réinitialisation:', error);
+      setError(error.message || 'Erreur lors de la réinitialisation du mot de passe');
     } finally {
       setLoading(false);
     }
   };
 
   const handleClose = () => {
-    setResetMethod('email');
+    setResetMethod('manual');
     setNewPassword('');
     setConfirmPassword('');
     setShowPassword(false);

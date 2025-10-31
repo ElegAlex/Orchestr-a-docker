@@ -33,7 +33,7 @@ import {
   endOfWeek,
 } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { Timestamp } from 'firebase/firestore';
+// Timestamp no longer needed - using Date objects directly
 import { TeleworkOverride, UserTeleworkProfile } from '../../types/telework.types';
 import { teleworkServiceV2 } from '../../services/telework-v2.service';
 
@@ -189,12 +189,11 @@ export const TeleworkBulkDeclarationModal: React.FC<TeleworkBulkDeclarationModal
         for (const date of datesToAdd) {
           await teleworkServiceV2.requestOverride({
             userId,
-            date: Timestamp.fromDate(date),
+            date: date,
             mode: 'remote',
-            source: 'user_request',
-            priority: 3,
             reason: 'Déclaration en masse',
             createdBy: userId,
+            // Note: source et priority sont gérés automatiquement par le backend
           });
         }
       }

@@ -53,6 +53,7 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(password, 10);
 
     // Créer l'utilisateur
+    // 🔒 Département obligatoire : nouveau user assigné au département "Général" par défaut
     const user = await this.prisma.user.create({
       data: {
         email,
@@ -60,6 +61,7 @@ export class AuthService {
         firstName,
         lastName,
         role: (role as any) || 'CONTRIBUTOR',
+        departmentId: 'general-dept-default-001', // Département "Général" par défaut
       },
     });
 

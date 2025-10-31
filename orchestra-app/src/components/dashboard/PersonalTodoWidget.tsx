@@ -20,14 +20,15 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../../hooks/useAuth';
 import { personalTodoService } from '../../services/personalTodo.service';
-import { PersonalTodo, PersonalTodoPriority } from '../../types/personalTodo';
+import type { PersonalTodo } from '../../services/api';
 
 const MAX_TODOS = 15;
 
-const priorityColors = {
-  high: '#f44336',
-  medium: '#ff9800',
-  low: '#4caf50',
+// Backend : 1=high, 2=medium, 3=low
+const priorityColors: Record<number, string> = {
+  1: '#f44336', // high = rouge
+  2: '#ff9800', // medium = orange
+  3: '#4caf50', // low = vert
 };
 
 export const PersonalTodoWidget: React.FC = () => {
@@ -44,11 +45,12 @@ export const PersonalTodoWidget: React.FC = () => {
 
       try {
         setLoading(true);
-        const userTodos = await personalTodoService.getUserTodos(user.id);
+        // ✅ REST API : getUserTodos() utilise le JWT, pas besoin de userId
+        const userTodos = await personalTodoService.getUserTodos();
         setTodos(userTodos);
 
         // Cleanup automatique des anciennes to-dos complétées
-        await personalTodoService.cleanupOldCompleted(user.id);
+        await personalTodoService.cleanupOldCompleted();
       } catch (error) {
         console.error('Erreur chargement to-dos:', error);
       } finally {
@@ -66,7 +68,8 @@ export const PersonalTodoWidget: React.FC = () => {
 
     try {
       setAdding(true);
-      const newTodo = await personalTodoService.create(user.id, {
+      // ✅ REST API : create() utilise le JWT, pas besoin de userId
+      const newTodo = await personalTodoService.create({
         text: newTodoText.trim(),
       });
       setTodos([newTodo, ...todos]);
@@ -81,7 +84,8 @@ export const PersonalTodoWidget: React.FC = () => {
   // Toggle completed
   const handleToggleCompleted = async (todo: PersonalTodo) => {
     try {
-      await personalTodoService.toggleCompleted(todo.id, !todo.completed);
+      // ✅ REST API : toggleCompleted() ne prend que l'id
+      await personalTodoService.toggleCompleted(todo.id);
       setTodos(todos.map(t =>
         t.id === todo.id
           ? { ...t, completed: !t.completed, completedAt: !t.completed ? new Date() : undefined }
@@ -102,14 +106,21 @@ export const PersonalTodoWidget: React.FC = () => {
     }
   };
 
-  // Changer priorité (cycle: none -> low -> medium -> high -> none)
+  // Changer priorité (cycle: none -> high -> medium -> low -> none)
   const handleCyclePriority = async (todo: PersonalTodo) => {
-    const priorities: (PersonalTodoPriority | undefined)[] = [undefined, 'low', 'medium', 'high'];
+    // Backend : 1=high, 2=medium, 3=low
+    const priorities: (number | undefined)[] = [undefined, 1, 2, 3];
     const currentIndex = priorities.indexOf(todo.priority);
     const nextPriority = priorities[(currentIndex + 1) % priorities.length];
 
     try {
-      await personalTodoService.updatePriority(todo.id, nextPriority);
+      // ✅ REST API : updatePriority attend un number
+      if (nextPriority !== undefined) {
+        await personalTodoService.updatePriority(todo.id, nextPriority);
+      } else {
+        // Pour supprimer la priorité, utiliser update avec priority: undefined
+        await personalTodoService.update(todo.id, { priority: undefined });
+      }
       setTodos(todos.map(t =>
         t.id === todo.id ? { ...t, priority: nextPriority } : t
       ));
@@ -214,7 +225,12 @@ export const PersonalTodoWidget: React.FC = () => {
                 />
 
                 {/* Indicateur priorité */}
-                <Tooltip title={todo.priority ? `Priorité ${todo.priority}` : 'Clic pour définir priorité'}>
+                <Tooltip title={
+                  todo.priority === 1 ? 'Priorité haute' :
+                  todo.priority === 2 ? 'Priorité moyenne' :
+                  todo.priority === 3 ? 'Priorité basse' :
+                  'Clic pour définir priorité'
+                }>
                   <IconButton
                     size="small"
                     onClick={() => handleCyclePriority(todo)}

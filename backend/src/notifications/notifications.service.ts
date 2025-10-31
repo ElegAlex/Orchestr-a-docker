@@ -72,10 +72,12 @@ export class NotificationsService {
 
   /**
    * Récupérer toutes les notifications avec filtrage et pagination
+   * 🔒 Isolation par département : Filtre via l'utilisateur du département
    */
   async findAll(filterDto: FilterNotificationDto) {
     const {
       userId,
+      departmentId,
       type,
       isRead,
       resourceType,
@@ -91,6 +93,13 @@ export class NotificationsService {
 
     if (userId) {
       where.userId = userId;
+    }
+
+    // 🔒 Filtre par département : notifications d'utilisateurs du département
+    if (departmentId) {
+      where.user = {
+        departmentId: departmentId,
+      };
     }
 
     if (type) {

@@ -20,6 +20,13 @@ class SkillManagementService {
   async initializeDefaultSkills(): Promise<{ created: number; skipped: number }> {
     try {
       const response = await skillsAPI.initializeDefaultSkills();
+
+      // Vérifier que la réponse est valide
+      if (!response || typeof response.created === 'undefined') {
+        console.warn('⚠️ Réponse invalide de l\'API skills/initialize');
+        return { created: 0, skipped: 0 };
+      }
+
       console.log(`✅ ${response.created} compétences créées, ${response.skipped} déjà existantes`);
 
       // Invalider le cache
@@ -29,7 +36,8 @@ class SkillManagementService {
       return { created: response.created, skipped: response.skipped };
     } catch (error) {
       console.error('Erreur lors de l\'initialisation des compétences:', error);
-      throw error;
+      // Ne pas throw l'erreur - retourner des valeurs par défaut
+      return { created: 0, skipped: 0 };
     }
   }
 
@@ -46,6 +54,12 @@ class SkillManagementService {
 
     // Récupérer depuis l'API
     const skills = await skillsAPI.getAll({ isActive: true });
+
+    // Vérifier que skills est un tableau
+    if (!Array.isArray(skills)) {
+      console.warn('⚠️ skills.getAll() n\'a pas retourné un tableau:', skills);
+      return [];
+    }
 
     // Mettre à jour le cache
     this.skillsCache.clear();
@@ -212,14 +226,14 @@ class SkillManagementService {
     },
   ): Promise<TaskSkill> {
     return await skillsAPI.updateTaskSkill(taskId, skillId, data);
-  },
+  }
 
   /**
    * Retire une compétence requise d'une tâche
    */
   async removeTaskSkill(taskId: string, skillId: string): Promise<void> {
     await skillsAPI.removeTaskSkill(taskId, skillId);
-  },
+  }
 
   // ==================== RECOMMANDATIONS & ANALYTICS ====================
 
@@ -228,28 +242,28 @@ class SkillManagementService {
    */
   async recommendPeopleForTask(taskId: string) {
     return await skillsAPI.recommendPeopleForTask(taskId);
-  },
+  }
 
   /**
    * Récupère les métriques globales sur les compétences
    */
   async getMetrics() {
     return await skillsAPI.getMetrics();
-  },
+  }
 
   /**
    * Récupère le top des compétences en demande
    */
   async getTopDemandSkills(limit: number = 10) {
     return await skillsAPI.getTopDemandSkills(limit);
-  },
+  }
 
   /**
    * Récupère les compétences en pénurie
    */
   async getShortageSkills() {
     return await skillsAPI.getShortageSkills();
-  },
+  }
 
   // ==================== HELPERS ====================
 
@@ -264,7 +278,7 @@ class SkillManagementService {
 
     const levelOrder = { BEGINNER: 1, INTERMEDIATE: 2, EXPERT: 3 };
     return levelOrder[userSkill.level] >= levelOrder[minimumLevel];
-  },
+  }
 
   /**
    * Calcule le score de correspondance entre un utilisateur et une tâche
@@ -295,7 +309,7 @@ class SkillManagementService {
 
     const maxScore = taskSkills.reduce((sum, ts) => sum + (ts.isRequired ? 2 : 1), 0);
     return Math.round((score / maxScore) * 100);
-  },
+  }
 
   /**
    * Invalide le cache
@@ -303,7 +317,10 @@ class SkillManagementService {
   clearCache(): void {
     this.skillsCache.clear();
     this.lastCacheUpdate = 0;
-  },
+  }
 }
 
-export default new SkillManagementService();
+// Export as both named and default for compatibility
+const skillManagementService = new SkillManagementService();
+export { skillManagementService };
+export default skillManagementService;

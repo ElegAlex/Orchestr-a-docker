@@ -111,8 +111,9 @@ model User {
   isActive      Boolean   @default(true) @map("is_active")
 
   // Relations
-  departmentId  String?   @map("department_id")
-  department    Department? @relation(fields: [departmentId], references: [id])
+  // 🔒 Département obligatoire pour isolation (sauf ADMIN qui peut avoir accès cross-département)
+  departmentId  String    @map("department_id")
+  department    Department @relation(fields: [departmentId], references: [id])
 
   // Timestamps
   createdAt     DateTime  @default(now()) @map("created_at")
@@ -149,6 +150,7 @@ model User {
   managedServices     OrganizationService[] @relation("ServiceManager")
   serviceAssignments  UserServiceAssignment[]
   sessions            Session[]
+  pushTokens          PushToken[]           @relation("UserPushTokens")
 
   @@map("users")
   @@index([email])
@@ -207,6 +209,7 @@ model Project {
   epics        Epic[]
   timeEntries  TimeEntry[]
   resourceAllocations ResourceAllocation[]
+  attachments  Attachment[]
 
   @@map("projects")
   @@index([status, priority, startDate])
@@ -265,6 +268,7 @@ model Task {
   activities      Activity[]
   timeEntries     TimeEntry[]
   taskSkills      TaskSkill[]
+  attachments     Attachment[]
 
   @@map("tasks")
   @@index([projectId, status, priority])
@@ -464,6 +468,39 @@ model Leave {
   @@map("leaves")
   @@index([userId, status])
   @@index([startDate, endDate])
+}
+
+// Leave Type Configuration (Paramétrage des types de congés)
+model LeaveTypeConfig {
+  id          String   @id @default(uuid())
+
+  // Informations du type de congé
+  name        String   // Ex: "CONGE PRINCIPAL", "CONGE ANCIENNETE"
+  code        String   @unique // Code unique: "PAID_LEAVE", "RTT", etc.
+  description String?  @db.Text
+
+  // Paramètres
+  defaultDays Decimal  @default(0) @db.Decimal(5, 1) @map("default_days") // Jours par défaut (ex: 25.0)
+  color       String   @default("#1976d2") // Couleur pour l'affichage (hex)
+  icon        String   @default("event") // Icône Material-UI
+
+  // Règles métier
+  requiresApproval Boolean @default(true) @map("requires_approval")
+  isPaid           Boolean @default(true) @map("is_paid")
+  countInBalance   Boolean @default(true) @map("count_in_balance") // Décompte du solde
+
+  // Gestion
+  isActive    Boolean  @default(true) @map("is_active")
+  isSystem    Boolean  @default(false) @map("is_system") // Type système (non supprimable)
+  sortOrder   Int      @default(0) @map("sort_order")
+
+  // Audit
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  createdBy   String?  @map("created_by")
+
+  @@map("leave_type_configs")
+  @@index([isActive, sortOrder])
 }
 
 // ==========================================
@@ -857,6 +894,9 @@ model SystemSettings {
   // Maintenance Mode
   maintenanceMode     Boolean  @default(false) @map("maintenance_mode")
   maintenanceMessage  String?  @map("maintenance_message")
+
+  // Calendar Configuration
+  visibleWeekDays     Int[]    @default([1, 2, 3, 4, 5]) @map("visible_week_days") // 0=Sunday, 1=Monday, ..., 6=Saturday
 
   // Audit
   lastModifiedBy      String?  @map("last_modified_by")
@@ -1445,4 +1485,87 @@ model Session {
   @@index([isActive])
   @@index([expiresAt])
   @@index([lastActivityAt])
+}
+
+// ==========================================
+// ATTACHMENTS - Gestion des Pièces Jointes (Service 33)
+// ==========================================
+
+model Attachment {
+  id           String   @id @default(uuid())
+
+  // Identification
+  fileName     String   @map("file_name")     // Nom de stockage unique
+  originalName String   @map("original_name") // Nom original du fichier
+
+  // Métadonnées fichier
+  fileSize     BigInt   @map("file_size")     // Taille en bytes
+  mimeType     String   @map("mime_type")     // Type MIME
+
+  // Stockage MinIO
+  storagePath  String   @map("storage_path")  // Chemin complet dans MinIO
+  downloadUrl  String?  @map("download_url") @db.Text // URL signée ou chemin relatif
+
+  // Relations
+  taskId       String?  @map("task_id")
+  task         Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  projectId    String?  @map("project_id")
+  project      Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Uploader
+  uploadedBy   String   @map("uploaded_by")
+
+  // Métadonnées
+  description  String?  @db.Text
+  tags         String[] @default([])
+  isPublic     Boolean  @default(false) @map("is_public")
+
+  // Versioning
+  version      Int      @default(1)
+  previousVersionId String? @map("previous_version_id")
+
+  // Timestamps
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("attachments")
+  @@index([taskId, uploadedAt])
+  @@index([projectId, uploadedAt])
+  @@index([uploadedBy])
+  @@index([fileName])
+  @@index([mimeType])
+}
+
+// ==========================================
+// SERVICE 35 - PUSH NOTIFICATIONS
+// ==========================================
+
+enum DeviceType {
+  WEB
+  MOBILE
+  DESKTOP
+}
+
+model PushToken {
+  id          String     @id @default(uuid())
+  userId      String     @map("user_id")
+  user        User       @relation("UserPushTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  // Token FCM
+  token       String     @db.Text
+  deviceType  DeviceType @default(WEB) @map("device_type")
+  userAgent   String?    @db.Text @map("user_agent")
+
+  // Metadata
+  isActive    Boolean    @default(true) @map("is_active")
+
+  // Timestamps
+  createdAt   DateTime   @default(now()) @map("created_at")
+  lastUsedAt  DateTime   @default(now()) @map("last_used_at")
+
+  @@map("push_tokens")
+  @@unique([userId, token])
+  @@index([userId, isActive])
+  @@index([token])
 }

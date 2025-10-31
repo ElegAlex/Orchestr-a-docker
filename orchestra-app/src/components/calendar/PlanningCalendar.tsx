@@ -107,26 +107,21 @@ const WEEKDAY_MAPPING: Record<number, WeekDay> = {
 
 // Vérifier si un jour est ouvrable pour un utilisateur
 const isWorkingDay = (date: Date, contract: WorkContract | null): boolean => {
+  // CORRECTION: Le contrat est INFORMATIF uniquement, pas une restriction d'affichage
+  // Si pas de contrat, TOUS les jours sont considérés comme ouvrables
   if (!contract || !contract.workingDays) {
-    // Par défaut: lundi à vendredi
-    return date.getDay() >= 1 && date.getDay() <= 5;
+    return true;  // Par défaut: tous les jours ouvrables
   }
-  
+
   const dayOfWeek = WEEKDAY_MAPPING[date.getDay()];
   return contract.workingDays.includes(dayOfWeek);
 };
 
 // Filtrer une liste de jours selon les jours ouvrables
 const filterWorkingDays = (days: Date[], contracts: Map<string, WorkContract | null>): Date[] => {
-  // Si aucun contrat spécifique, garder tous les jours ouvrables standards (lundi-vendredi)
-  if (contracts.size === 0) {
-    return days.filter(day => day.getDay() >= 1 && day.getDay() <= 5);
-  }
-  
-  // Retourner les jours qui sont ouvrables pour au moins un utilisateur
-  return days.filter(day => {
-    return Array.from(contracts.values()).some(contract => isWorkingDay(day, contract));
-  });
+  // CORRECTION FINALE: Le contrat de travail est INFORMATIF uniquement
+  // Ne JAMAIS filtrer l'affichage des jours - toujours afficher tous les jours
+  return days;
 };
 
 // ========================================
@@ -999,33 +994,8 @@ const UserRow: React.FC<UserRowProps> = ({
           }}>
             <Box sx={{ display: 'flex', gap: 0.5 }}>
               {weekDays.map((day) => {
-                  // Récupérer le contrat de cet utilisateur spécifique
-                  const userContract = userContracts.get(workloadDay.userId) || null;
-
-                  // Si l'utilisateur ne travaille pas ce jour, ne pas afficher la colonne
-                  if (!isWorkingDay(day, userContract)) {
-                    return (
-                      <Box
-                        key={day.toISOString()}
-                        sx={{
-                          flex: 1,
-                          minWidth: 160,
-                          p: 0.5,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          bgcolor: 'grey.100',
-                          color: 'text.disabled',
-                          borderRadius: 1
-                        }}
-                      >
-                        <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
-                          Non travaillé
-                        </Typography>
-                      </Box>
-                    );
-                  }
-
+                  // CORRECTION FINALE: Toujours afficher la colonne de planning
+                  // Ne JAMAIS bloquer l'affichage avec "Non travaillé"
                   return renderDayColumn(day);
                 })}
             </Box>
@@ -1102,8 +1072,11 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
   const weekDays = useMemo(() => {
     const start = startOfWeek(currentDate, { locale: fr });
     const allWeekDays = Array.from({ length: 7 }, (_, i) => addDays(start, i));
+    console.log('[PlanningCalendar] allWeekDays:', allWeekDays.length, 'userContracts.size:', userContracts.size);
     // Filtrer selon les jours ouvrables des utilisateurs
-    return filterWorkingDays(allWeekDays, userContracts);
+    const filtered = filterWorkingDays(allWeekDays, userContracts);
+    console.log('[PlanningCalendar] weekDays after filter:', filtered.length);
+    return filtered;
   }, [currentDate, userContracts]);
 
   // Calculer les jours du mois pour la vue mensuelle
@@ -1150,11 +1123,14 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
 
   // Appliquer les données télétravail aux workloadDays
   const workloadDays = useMemo(() => {
-    return rawWorkloadDays.map(workloadDay => {
+    console.log('[PlanningCalendar] rawWorkloadDays:', rawWorkloadDays.length, 'items');
+    const result = rawWorkloadDays.map(workloadDay => {
       const teleworkResolution = teleworkSystem.getResolutionForDay(workloadDay.userId, workloadDay.date);
       const isRemoteWork = teleworkResolution?.resolvedMode === 'remote';
       return { ...workloadDay, isRemoteWork };
     });
+    console.log('[PlanningCalendar] workloadDays:', result.length, 'items');
+    return result;
   }, [rawWorkloadDays, teleworkSystem.weekResolutions.size, teleworkSystem]);
 
   // UI États
@@ -1279,6 +1255,11 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
       // Filtrage par services
       if (selectedServices.length > 0) {
         filteredUsers = filteredUsers.filter(user => {
+          // CORRECTION: Permettre les utilisateurs explicitement sélectionnés même sans service
+          if (selectedUsers.length > 0 && selectedUsers.includes(user.id)) {
+            return true;
+          }
+
           // Si "Encadrement" est sélectionné et l'utilisateur est manager/responsable
           if (selectedServices.includes('encadrement') &&
               (user.role === 'manager' || user.role === 'responsable')) {
@@ -1660,6 +1641,9 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
       }
 
       const workloadData = await Promise.all(workloadPromises.map(fn => fn()));
+
+      console.log('[PlanningCalendar] loadCalendarData - workloadData:', workloadData.length, 'items');
+      console.log('[PlanningCalendar] loadCalendarData - filteredUsers:', filteredUsers.length, 'users');
 
       // Détecter les conflits
       setRawWorkloadDays(workloadData);
@@ -2086,8 +2070,18 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
     if (viewMode === 'week') {
       const firstDay = weekDays[0];
       const lastDay = weekDays[weekDays.length - 1];
+
+      // CORRECTION: Vérifier que les dates sont valides
+      if (!firstDay || !lastDay || isNaN(firstDay.getTime()) || isNaN(lastDay.getTime())) {
+        return 'Semaine en cours';
+      }
+
       return `Semaine du ${format(firstDay, 'd MMM', { locale: fr })} au ${format(lastDay, 'd MMM yyyy', { locale: fr })}`;
     } else {
+      // CORRECTION: Vérifier que currentDate est valide
+      if (!currentDate || isNaN(currentDate.getTime())) {
+        return 'Mois en cours';
+      }
       return format(currentDate, 'MMMM yyyy', { locale: fr });
     }
   };
@@ -2370,7 +2364,7 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
                               weekDays={weekDays}
                               departments={departments}
                               userContracts={userContracts}
-                              currentUserId={auth.currentUser?.uid || ''}
+                              currentUserId={auth?.currentUser?.uid || currentUser?.id || ''}
                               teleworkSystem={teleworkSystem}
                               onItemMove={handleItemMove}
                               onItemClick={setSelectedItem}
@@ -2453,7 +2447,7 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
                             weekDays={weekDays}
                             departments={departments}
                             userContracts={userContracts}
-                            currentUserId={auth.currentUser?.uid || ''}
+                            currentUserId={auth?.currentUser?.uid || currentUser?.id || ''}
                             teleworkSystem={teleworkSystem}
                             onItemMove={handleItemMove}
                             onItemClick={setSelectedItem}
@@ -2614,9 +2608,9 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
           onCreate={async (taskInput, userIds) => {
             // Créer la tâche simple pour le/les utilisateur(s)
             if (userIds.length === 1) {
-              await simpleTaskService.create(taskInput, userIds[0], auth.currentUser?.uid || '');
+              await simpleTaskService.create(taskInput, userIds[0], auth?.currentUser?.uid || currentUser?.id || '');
             } else {
-              await simpleTaskService.createMultiple(taskInput, userIds, auth.currentUser?.uid || '');
+              await simpleTaskService.createMultiple(taskInput, userIds, auth?.currentUser?.uid || currentUser?.id || '');
             }
             // Fermer la modal et recharger via une mise à jour de la clé
             setSimpleTaskModalOpen(false);
@@ -2624,7 +2618,7 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
             // Force re-render pour recharger les données
             window.location.reload();
           }}
-          currentUserId={simpleTaskModalData.userId || auth.currentUser?.uid || ''}
+          currentUserId={simpleTaskModalData.userId || auth?.currentUser?.uid || currentUser?.id || ''}
         />
 
         {/* Modal de configuration profil télétravail */}

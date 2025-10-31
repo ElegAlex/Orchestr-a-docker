@@ -83,6 +83,7 @@ export class ProjectsService {
 
   /**
    * Récupérer tous les projets avec filtrage et pagination
+   * 🔒 Isolation par département : Filtre les projets avec au moins 1 membre du département
    */
   async findAll(filterDto: FilterProjectDto) {
     const {
@@ -90,6 +91,7 @@ export class ProjectsService {
       status,
       priority,
       managerId,
+      departmentId,
       startDateAfter,
       dueDateBefore,
       tag,
@@ -119,6 +121,17 @@ export class ProjectsService {
 
     if (managerId) {
       where.managerId = managerId;
+    }
+
+    // 🔒 Filtre par département : projet visible si AU MOINS 1 membre du département
+    if (departmentId) {
+      where.members = {
+        some: {
+          user: {
+            departmentId: departmentId,
+          },
+        },
+      };
     }
 
     if (startDateAfter) {
@@ -170,8 +183,34 @@ export class ProjectsService {
       this.prisma.project.count({ where }),
     ]);
 
+    // Transformer les données pour le format attendu par le frontend
+    const transformedProjects = await Promise.all(
+      projects.map(async (project) => {
+        // Calculer le progress (% de tâches complétées)
+        const taskStats = await this.prisma.task.groupBy({
+          by: ['status'],
+          where: { projectId: project.id },
+          _count: true,
+        });
+
+        const totalTasks = taskStats.reduce((sum, stat) => sum + stat._count, 0);
+        const completedTasks = taskStats.find(stat => stat.status === 'COMPLETED')?._count || 0;
+        const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+        // Extraire les userIds des members pour teamMembers
+        const teamMembers = project.members.map(m => m.userId);
+
+        return {
+          ...project,
+          progress,
+          teamMembers,
+          code: null, // Pas de champ code dans le schéma actuel
+        };
+      })
+    );
+
     return {
-      data: projects,
+      data: transformedProjects,
       meta: {
         total,
         page,

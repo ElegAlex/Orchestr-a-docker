@@ -1080,10 +1080,8 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
   const weekDays = useMemo(() => {
     const start = startOfWeek(currentDate, { locale: fr });
     const allWeekDays = Array.from({ length: 7 }, (_, i) => addDays(start, i));
-    console.log('[PlanningCalendar] allWeekDays:', allWeekDays.length, 'userContracts.size:', userContracts.size);
     // Filtrer selon les jours ouvrables des utilisateurs
     const filtered = filterWorkingDays(allWeekDays, userContracts);
-    console.log('[PlanningCalendar] weekDays after filter:', filtered.length);
     return filtered;
   }, [currentDate, userContracts]);
 
@@ -1142,13 +1140,11 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
 
   // Appliquer les données télétravail aux workloadDays
   const workloadDays = useMemo(() => {
-    console.log('[PlanningCalendar] rawWorkloadDays:', rawWorkloadDays.length, 'items');
     const result = rawWorkloadDays.map(workloadDay => {
       const teleworkResolution = teleworkSystem.getResolutionForDay(workloadDay.userId, workloadDay.date);
       const isRemoteWork = teleworkResolution?.resolvedMode === 'remote';
       return { ...workloadDay, isRemoteWork };
     });
-    console.log('[PlanningCalendar] workloadDays:', result.length, 'items');
     return result;
   }, [rawWorkloadDays, teleworkSystem.weekResolutions.size, teleworkSystem]);
 
@@ -1660,9 +1656,6 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
       }
 
       const workloadData = await Promise.all(workloadPromises.map(fn => fn()));
-
-      console.log('[PlanningCalendar] loadCalendarData - workloadData:', workloadData.length, 'items');
-      console.log('[PlanningCalendar] loadCalendarData - filteredUsers:', filteredUsers.length, 'users');
 
       // Détecter les conflits
       setRawWorkloadDays(workloadData);

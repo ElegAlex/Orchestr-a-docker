@@ -1091,6 +1091,7 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
     const monthEnd = endOfMonth(currentDate);
     const days: Date[] = [];
     let date = monthStart;
+    // IMPORTANT: <= monthEnd pour inclure le dernier jour du mois
     while (date <= monthEnd) {
       days.push(new Date(date));
       date = addDays(date, 1);
@@ -1522,7 +1523,7 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
             if (isMultiDay) {
               const taskDays = eachDayOfInterval({ start: taskStart, end: taskEnd });
               const periodStart = viewMode === 'week' ? currentPeriod.start : monthDays[0];
-              const periodEnd = viewMode === 'week' ? currentPeriod.end : monthDays[monthDays.length - 1];
+              const periodEnd = viewMode === 'week' ? currentPeriod.end : endOfDay(monthDays[monthDays.length - 1]);
 
               taskDays.forEach((day, index) => {
                 // Vérifier si ce jour est dans la période affichée
@@ -1563,7 +1564,7 @@ const PlanningCalendar: React.FC<PlanningCalendarProps> = ({
             } else {
               // Tâche d'un seul jour
               const periodStart = viewMode === 'week' ? currentPeriod.start : monthDays[0];
-              const periodEnd = viewMode === 'week' ? currentPeriod.end : monthDays[monthDays.length - 1];
+              const periodEnd = viewMode === 'week' ? currentPeriod.end : endOfDay(monthDays[monthDays.length - 1]);
 
               if (taskStart >= periodStart && taskStart <= periodEnd) {
                   // Extraire les heures de task.startTime et task.endTime si présents
